@@ -37,6 +37,8 @@ async def main() -> None:
     await init_db()
     logger.info("Базу даних ініціалізовано.")
 
+    await backfill_nbu_history_if_empty()
+
     # Встановлюємо дефолтний HTML parse_mode для всього бота
     bot = Bot(
         token=settings.BOT_TOKEN,
