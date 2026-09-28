@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Currency Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --color-bg: #1CCFA9;
+      --color-panel: #C6FF3F;
+      --color-outline: #111111;
+      --color-card: #FFFFFF;
+      --color-accent-orange: #FF8A5B;
+      --color-accent-purple: #B685FF;
+      --color-accent-pink: #FF6E8E;
+      --color-text: #111111;
+      --color-text-muted: #555555;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Poppins', 'Arial Black', sans-serif;
+    }
+
+    body {
+      background-color: var(--color-bg);
+      color: var(--color-text);
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .app-container {
+      background-color: var(--color-panel);
+      border: 3px solid var(--color-outline);
+      border-radius: 24px;
+      padding: 20px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 6px 6px 0px var(--color-outline);
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      text-align: center;
+      letter-spacing: 1px;
+    }
+
+    .card {
+      background-color: var(--color-card);
+      border: 3px solid var(--color-outline);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 4px 4px 0px var(--color-outline);
+    }
+
+    .card-title {
+      font-weight: 800;
+      font-size: 16px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    .rates-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .rate-box {
+      flex: 1;
+      background: var(--color-panel);
+      border: 2px solid var(--color-outline);
+      border-radius: 12px;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .rate-box .currency {
+      font-weight: 900;
+      font-size: 18px;
+    }
+
+    .rate-box .val {
+      font-size: 20px;
+      font-weight: 800;
+      margin-top: 4px;
+    }
+
+    .convert-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    input, select {
+      padding: 10px;
+      border: 2px solid var(--color-outline);
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      outline: none;
+    }
+
+    .btn-action {
+      background-color: var(--color-accent-orange);
+      color: #fff;
+      border: 3px solid var(--color-outline);
+      border-radius: 12px;
+      padding: 12px;
+      font-weight: 900;
+      font-size: 16px;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 3px 3px 0px var(--color-outline);
+      transition: transform 0.1s;
+    }
+
+    .btn-action:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px var(--color-outline);
+    }
+
+    .result-text {
+      font-size: 18px;
+      font-weight: 800;
+      margin-top: 8px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <h1>💱 Currency Mini App</h1>
+
+    <!-- Картка курсів -->
+    <div class="card">
+      <div class="card-title">Поточні курси НБУ</div>
+      <div class="rates-row">
+        <div class="rate-box">
+          <div class="currency">USD</div>
+          <div class="val" id="usd-rate">--.--</div>
+        </div>
+        <div class="rate-box">
+          <div class="currency">EUR</div>
+          <div class="val" id="eur-rate">--.--</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Графік -->
+    <div class="card">
+      <div class="card-title">Динаміка USD (30 днів)</div>
+      <canvas id="rateChart" height="180"></canvas>
+    </div>
+
+    <!-- Конвертер -->
+    <div class="card">
+      <div class="card-title">Швидка конвертація</div>
+      <div class="convert-form">
+        <input type="number" id="amountInput" placeholder="Сума" value="100">
+        <select id="currencySelect">
+          <option value="USD">USD ➔ UAH</option>
+          <option value="EUR">EUR ➔ UAH</option>
+        </select>
+        <div class="result-text" id="calcResult">0.00 UAH</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    let usdRate = 41.50;
+    let eurRate = 45.20;
+
+    async function loadData() {
+      try {
+        const res = await fetch('/api/rates');
+        if(res.ok) {
+          const data = await res.json();
+          usdRate = data.USD || usdRate;
+          eurRate = data.EUR || eurRate;
+        }
+      } catch(e) {}
+
+      document.getElementById('usd-rate').innerText = usdRate.toFixed(2);
+      document.getElementById('eur-rate').innerText = eurRate.toFixed(2);
+      calculate();
+    }
+
+    function calculate() {
+      const amount = parseFloat(document.getElementById('amountInput').value) || 0;
+      const curr = document.getElementById('currencySelect').value;
+      const rate = curr === 'USD' ? usdRate : eurRate;
+      const res = amount * rate;
+      document.getElementById('calcResult').innerText = `${res.toFixed(2)} UAH`;
+    }
+
+    document.getElementById('amountInput').addEventListener('input', calculate);
+    document.getElementById('currencySelect').addEventListener('change', calculate);
+
+    // Ініціалізація графіку
+    const ctx = document.getElementById('rateChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: Array.from({length: 10}, (_, i) => `День ${i+1}`),
+        datasets: [{
+          label: 'Курс USD',
+          data: [41.1, 41.2, 41.15, 41.3, 41.25, 41.4, 41.35, 41.45, 41.5, 41.5],
+          borderColor: '#111111',
+          borderWidth: 3,
+          backgroundColor: '#FF8A5B',
+          fill: false,
+          tension: 0.3
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false } },
+          y: { grid: { color: '#eee' } }
+        }
+      }
+    });
+
+    loadData();
+  </script>
+</body>
+</html>
