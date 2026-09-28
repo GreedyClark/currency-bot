@@ -1,105 +1,48 @@
 from aiogram import Router, types
 from aiogram.filters import Command
-from services.nbu_api import get_nbu_rate_by_code
-from services.mono_api import get_mono_rate_by_code
+from services.nbu_api import get_nbu_rates
+from database.db import get_rate_history
 
 router = Router()
 
 
+async def get_rate_change_indicator(currency: str, current_rate: float) -> str:
+    """
+    Порівнює поточний курс із попереднім значенням з історії та повертає текстовий індикатор.
+    """
+    history = await get_rate_history(currency=currency, days=2, source="nbu")
+    # Якщо записів менше ніж 1 або відсутні дані — не показуємо індикатор
+    if not history or len(history) < 1:
+        return ""
+
+    prev_rate = history[0].get("rate_buy")
+    if prev_rate is None:
+        return ""
+
+    diff = current_rate - prev_rate
+    if diff > 0:
+        return f" (📈 +{diff:.2f})"
+    elif diff < 0:
+        return f" (📉 {diff:.2f})"
+    else:
+        return " (➖ 0.00)"
+
+
 @router.message(Command("rate"))
 async def cmd_rate(message: types.Message) -> None:
-    """
-    Обробник команди /rate.
-    Отримує та відображає поточний курс USD і EUR від НБУ та Monobank.
-    """
-    await message.answer("🔄 Отримую актуальні курси валют...")
-
-    # Отримання даних з НБУ
-    usd_nbu = await get_nbu_rate_by_code("USD")
-    eur_nbu = await get_nbu_rate_by_code("EUR")
-
-    # Отримання даних з Monobank
-    usd_mono = await get_mono_rate_by_code("USD")
-    eur_mono = await get_mono_rate_by_code("EUR")
-
-    text = "📊 **Поточні курси валют (до UAH)**\n\n"
-
-    # Форматування даних НБУ
-    text += "🏛 **Національний банк України:**\n"
-    text += f"• USD: **{usd_nbu:.2f} UAH**\n" if usd_nbu else "• USD: *Недоступно*\n"
-    text += f"• EUR: **{eur_nbu:.2f} UAH**\n\n" if eur_nbu else "• EUR: *Недоступно*\n\n"
-
-    # Форматування даних Monobank
-    text += "🏦 **Monobank:**\n"
-    if usd_mono:
-        text += f"• USD: Купівля **{usd_mono['buy']:.2f}** | Продаж **{usd_mono['sell']:.2f} UAH**\n"
-    else:
-        text += "• USD: *Недоступно*\n"
-
-    if eur_mono:
-        text += f"• EUR: Купівля **{eur_mono['buy']:.2f}** | Продаж **{eur_mono['sell']:.2f} UAH**\n"
-    else:
-        text += "• EUR: *Недоступно*\n"
-
-    await message.answer(text, parse_mode="Markdown")
-
-
-@router.message(Command("convert"))
-async def cmd_convert(message: types.Message) -> None:
-    """
-    Обробник команди /convert [сума] [з_валюти] [в_валюту].
-    Приклад: /convert 100 usd uah
-    """
-    if not message.text:
+    """Обробник команди /rate."""
+    rates = await get_nbu_rates()
+    if not rates:
+        await message.answer("❌ Не вдалося отримати актуальні курси валют.")
         return
 
-    args = message.text.split()[1:]
+    text_lines = ["<b>📊 Поточний курс валют (НБУ):</b>\n"]
 
-    # Валідація кількості аргументів
-    if len(args) != 3:
-        await message.answer(
-            "❌ **Некоректний формат!**\n\n"
-            "Використовуйте: `/convert [сума] [з_валюти] [в_валюту]`\n"
-            "Приклад: `/convert 100 usd uah`",
-            parse_mode="Markdown"
-        )
-        return
+    for r in rates:
+        code = r.get("cc")
+        if code in ["USD", "EUR"]:
+            val = r.get("rate", 0.0)
+            indicator = await get_rate_change_indicator(code, val)
+            text_lines.append(f"{code}: <b>{val:.2f}</b> UAH{indicator}")
 
-    amount_str, from_curr, to_curr = args[0], args[1].upper(), args[2].upper()
-
-    # Валідація суми
-    try:
-        amount = float(amount_str)
-        if amount <= 0:
-            raise ValueError
-    except ValueError:
-        await message.answer("❌ Сума має бути додатним числом!")
-        return
-
-    # Підтримувані валюти
-    supported = ["USD", "EUR", "UAH"]
-    if from_curr not in supported or to_curr not in supported:
-        await message.answer("❌ Підтримуються тільки валюти: **USD, EUR, UAH**.", parse_mode="Markdown")
-        return
-
-    if from_curr == to_curr:
-        await message.answer(f"Результат: **{amount:.2f} {to_curr}**", parse_mode="Markdown")
-        return
-
-    # Розрахунок через курс НБУ
-    rate_from = 1.0 if from_curr == "UAH" else await get_nbu_rate_by_code(from_curr)
-    rate_to = 1.0 if to_curr == "UAH" else await get_nbu_rate_by_code(to_curr)
-
-    if not rate_from or not rate_to:
-        await message.answer("❌ Не вдалося отримати курс для розрахунку. Спробуйте пізніше.")
-        return
-
-    # Конвертація в UAH, а потім у цільову валюту
-    amount_in_uah = amount * rate_from
-    result = amount_in_uah / rate_to
-
-    await message.answer(
-        f"💱 **Результат конвертації (за курсом НБУ):**\n"
-        f"{amount:,.2f} {from_curr} = **{result:,.2f} {to_curr}**",
-        parse_mode="Markdown"
-    )
+    await message.answer("\n".join(text_lines), parse_mode="HTML")

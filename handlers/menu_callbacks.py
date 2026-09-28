@@ -9,6 +9,7 @@ from services.nbu_api import get_nbu_rates, get_nbu_rate_by_code
 from database.db import add_subscription, get_rate_history
 from handlers.history import generate_chart
 from handlers.start import get_main_menu_keyboard
+from handlers.rate import get_rate_change_indicator
 
 router = Router()
 
@@ -71,8 +72,9 @@ async def process_menu_rate(callback: types.CallbackQuery) -> None:
     for r in rates:
         code = r.get("cc")
         if code in ["USD", "EUR"]:
-            val = r.get("rate")
-            text_lines.append(f"<b>{code}:</b> <code>{val:.2f}</code> UAH")
+            val = r.get("rate", 0.0)
+            indicator = await get_rate_change_indicator(code, val)
+            text_lines.append(f"{code}: <b>{val:.2f}</b> UAH{indicator}")
 
     text_lines.append("\nОновлено автоматично.")
     builder = InlineKeyboardBuilder()
@@ -131,7 +133,7 @@ async def process_convert_amount(message: types.Message, state: FSMContext) -> N
     res_text = (
         f"💱 <b>Результат конвертації:</b>\n\n"
         f"<code>{amount:,.2f}</code> {curr} = <code>{result:,.2f}</code> UAH\n"
-        f"<i>(Курс НБУ: {rate:.2f} UAH)</i>"
+        f"<i>(Курс НБУ: <code>{rate:.2f}</code> UAH)</i>"
     )
     await message.answer(res_text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
 
@@ -199,7 +201,7 @@ async def process_sub_rate(message: types.Message, state: FSMContext) -> None:
 
     await message.answer(
         f"✅ <b>Підписку успішно збережено!</b>\n\n"
-        f"Ми сповістимо вас, коли курс <b>{curr}</b> буде <b>{cond} {target_rate:.2f} UAH</b>.",
+        f"Ми сповістимо вас, коли курс <b>{curr}</b> буде <b>{cond} <code>{target_rate:.2f}</code> UAH</b>.",
         reply_markup=get_main_menu_keyboard(),
         parse_mode="HTML"
     )
