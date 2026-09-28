@@ -1,15 +1,13 @@
 import io
 import matplotlib
 import matplotlib.pyplot as plt
-from aiogram import Router, types, F
+from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, InlineQuery, InlineQueryResultArticle, InputTextMessageContent
 from database.db import get_rate_history
 from services.nbu_api import get_nbu_rate_by_code
 
-# Налаштування matplotlib для роботи без графічного інтерфейсу (headless)
 matplotlib.use("Agg")
-
 router = Router()
 
 
@@ -36,10 +34,7 @@ def generate_chart(history_data: list, currency: str) -> io.BytesIO:
 
 @router.message(Command("history"))
 async def cmd_history(message: types.Message) -> None:
-    """
-    Обробник команди /history [валюта] [днів].
-    Приклад: /history usd 7
-    """
+    """Обробник команди /history [usd/eur] [днів]."""
     if not message.text:
         return
 
@@ -48,49 +43,37 @@ async def cmd_history(message: types.Message) -> None:
     days = int(args[1]) if len(args) > 1 and args[1].isdigit() else 7
 
     if currency not in ["USD", "EUR"]:
-        await message.answer("❌ Графіки доступні тільки для **USD** та **EUR**.", parse_mode="Markdown")
+        await message.answer("❌ Графіки доступні тільки для <b>USD</b> та <b>EUR</b>.")
         return
 
     history_data = await get_rate_history(currency=currency, days=days, source="nbu")
-
     if not history_data or len(history_data) < 2:
-        await message.answer(
-            f"ℹ️ Для побудови графіка недостатньо даних в БД за останні {days} днів.\n"
-            f"Дані накопичуються щодня автоматично."
-        )
+        await message.answer(f"ℹ️ Для побудови графіка недостатньо даних в БД за останні {days} днів.")
         return
 
-    # Розвертаємо список, оскільки з БД дані надходять від найновіших до найстаріших (DESC)
     history_data = list(reversed(history_data))
-
-    await message.answer("📊 Генерую графік...")
     chart_buf = generate_chart(history_data, currency)
     photo = BufferedInputFile(chart_buf.getvalue(), filename=f"{currency}_history.png")
 
     await message.answer_photo(
         photo=photo,
-        caption=f"📈 Динаміка курсу **{currency}** за останні {len(history_data)} дн.",
-        parse_mode="Markdown"
+        caption=f"📈 Динаміка курсу <b>{currency}</b> за останні {len(history_data)} дн."
     )
 
 
-# --- Inline-режим ---
-
 @router.inline_query()
 async def inline_convert(inline_query: InlineQuery) -> None:
-    """
-    Обробка inline-запитів.
-    Формат у чаті: @botname 100 usd
-    """
+    """Обробка inline-запитів. Формат: @botname 100 usd"""
     query = inline_query.query.strip()
     if not query:
         return
 
     args = query.split()
-    if len(args) < 2 or not args[0].replace(".", "", 1).isdigit():
+    raw_amount = args[0].replace(",", ".")
+    if len(args) < 2 or not raw_amount.replace(".", "", 1).isdigit():
         return
 
-    amount = float(args[0])
+    amount = float(raw_amount)
     currency = args[1].upper()
 
     if currency not in ["USD", "EUR"]:
@@ -102,15 +85,18 @@ async def inline_convert(inline_query: InlineQuery) -> None:
 
     result = amount * rate
     title = f"{amount:,.2f} {currency} = {result:,.2f} UAH"
-    description = f"За офіційним курсом НБУ ({rate:.2f} UAH)"
+    description = f"Курс НБУ: {rate:.2f} UAH"
 
     item = InlineQueryResultArticle(
         id="1",
         title=title,
         description=description,
         input_message_content=InputTextMessageContent(
-            message_text=f"💱 **Конвертація:**\n{amount:,.2f} {currency} = **{result:,.2f} UAH**\n*(Курс НБУ: {rate:.2f})*",
-            parse_mode="Markdown"
+            message_text=(
+                f"💱 <b>Конвертація:</b>\n"
+                f"<code>{amount:,.2f}</code> {currency} = <b><code>{result:,.2f}</code> UAH</b>\n"
+                f"<i>(Курс НБУ: <code>{rate:.2f}</code> UAH)</i>"
+            )
         )
     )
 

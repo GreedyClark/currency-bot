@@ -4,54 +4,45 @@ from database.db import add_subscription, remove_subscriptions_by_user
 
 router = Router()
 
-VALID_CONDITIONS = [">", "<", ">=", "<="]
-VALID_CURRENCIES = ["USD", "EUR"]
-
 
 @router.message(Command("subscribe"))
 async def cmd_subscribe(message: types.Message) -> None:
     """
-    Обробник команди /subscribe [валюта] [умова] [значення].
+    Обробник команди /subscribe [валюта] [умова: >, <, >=, <=] [цільовий_курс]
     Приклад: /subscribe usd > 41.5
     """
-    if not message.text or not message.from_user:
+    if not message.text:
         return
 
     args = message.text.split()[1:]
-
-    # Перевірка кількості аргументів
-    if len(args) != 3:
+    if len(args) < 3:
         await message.answer(
-            "❌ **Некоректний формат!**\n\n"
-            "Використовуйте: `/subscribe [валюта] [умова] [значення]`\n"
-            "Доступні умови: `>`, `<`, `>=`, `<=`\n"
-            "Приклад: `/subscribe usd > 41.5`",
-            parse_mode="Markdown"
+            "❌ <b>Некоректний формат команди.</b>\n\n"
+            "Використовуйте: <code>/subscribe [usd/eur] [>, <, >=, <=] [курс]</code>\n"
+            "Приклад: <code>/subscribe usd > 41.5</code>"
         )
         return
 
-    currency, condition, target_rate_str = args[0].upper(), args[1], args[2]
+    currency = args[0].upper()
+    condition = args[1]
+    raw_rate = args[2].replace(",", ".")
 
-    # Валідація валюти
-    if currency not in VALID_CURRENCIES:
-        await message.answer("❌ Підтримуються тільки валюти **USD** та **EUR**.", parse_mode="Markdown")
+    if currency not in ["USD", "EUR"]:
+        await message.answer("❌ Підписка доступна тільки для <b>USD</b> та <b>EUR</b>.")
         return
 
-    # Валідація умови
-    if condition not in VALID_CONDITIONS:
-        await message.answer(f"❌ Некоректна умова. Дозволені значення: {', '.join(VALID_CONDITIONS)}")
+    if condition not in [">", "<", ">=", "<="]:
+        await message.answer("❌ Некоректна умова. Допустимі варіанти: <code>></code>, <code><</code>, <code>>=</code>, <code><=</code>.")
         return
 
-    # Валідація цільового курсу
     try:
-        target_rate = float(target_rate_str)
+        target_rate = float(raw_rate)
         if target_rate <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Значення курсу має бути додатним числом!")
+        await message.answer("❌ Будь ласка, вкажіть додатне число для цільового курсу.")
         return
 
-    # Збереження підписки в БД
     success = await add_subscription(
         user_id=message.from_user.id,
         currency=currency,
@@ -61,26 +52,18 @@ async def cmd_subscribe(message: types.Message) -> None:
 
     if success:
         await message.answer(
-            f"✅ **Підписку успішно створено!**\n\n"
-            f"Я надішлю сповіщення, коли курс **{currency}** відповідатиме умові: "
-            f"`{condition} {target_rate}`",
-            parse_mode="Markdown"
+            f"✅ <b>Підписку успішно створено!</b>\n"
+            f"Ми сповістимо вас, коли курс <b>{currency}</b> стане <b>{condition} <code>{target_rate:.2f}</code> UAH</b>."
         )
     else:
-        await message.answer("⚠️ Така підписка у вас вже існує!")
+        await message.answer(f"ℹ️ У вас вже існує точно така ж підписка на <b>{currency} {condition} <code>{target_rate:.2f}</code> UAH</b>.")
 
 
 @router.message(Command("unsubscribe"))
 async def cmd_unsubscribe(message: types.Message) -> None:
-    """
-    Обробник команди /unsubscribe.
-    Видаляє всі активні підписки користувача.
-    """
-    if not message.from_user:
-        return
-
-    count = await remove_subscriptions_by_user(message.from_user.id)
-    if count > 0:
-        await message.answer(f"🗑 Успішно скасовано всі ваші підписки (видалено: {count}).")
+    """Скасовує всі підписки користувача."""
+    deleted_count = await remove_subscriptions_by_user(message.from_user.id)
+    if deleted_count > 0:
+        await message.answer(f"✅ Успішно скасовано всі ваші підписки (видалено: <b>{deleted_count}</b>).")
     else:
-        await message.answer("ℹ️ У вас не було активних підписок.")
+        await message.answer("ℹ️ У вас немає активних підписок.")
