@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import webbrowser
 import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -28,6 +29,13 @@ async def start_fastapi_server() -> None:
     )
     server = uvicorn.Server(config)
     await server.serve()
+
+
+async def open_browser_delayed() -> None:
+    """Автоматично відкриває сторінку Mini App у браузері після запуску сервера."""
+    await asyncio.sleep(1.5)  # Чекаємо 1.5 сек, щоб Uvicorn встиг стартувати
+    logger.info("Автоматичне відкриття Mini App у браузері (http://localhost:8000)...")
+    webbrowser.open("http://localhost:8000")
 
 
 async def main() -> None:
@@ -61,11 +69,12 @@ async def main() -> None:
 
     await bot.delete_webhook(drop_pending_updates=True)
 
-    # Запускаємо паралельно бот і FastAPI сервер
+    # Запускаємо паралельно бот, FastAPI сервер та автовідкриття браузера
     try:
         await asyncio.gather(
             dp.start_polling(bot),
-            start_fastapi_server()
+            start_fastapi_server(),
+            open_browser_delayed()
         )
     finally:
         await bot.session.close()
