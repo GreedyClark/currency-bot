@@ -60,6 +60,9 @@ async def cmd_history(message: types.Message) -> None:
         )
         return
 
+    # Розвертаємо список, оскільки з БД дані надходять від найновіших до найстаріших (DESC)
+    history_data = list(reversed(history_data))
+
     await message.answer("📊 Генерую графік...")
     chart_buf = generate_chart(history_data, currency)
     photo = BufferedInputFile(chart_buf.getvalue(), filename=f"{currency}_history.png")

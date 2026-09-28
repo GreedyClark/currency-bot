@@ -44,6 +44,14 @@ async def remove_subscriptions_by_user(user_id: int) -> int:
         return cursor.rowcount
 
 
+async def remove_subscription_by_id(sub_id: int) -> None:
+    """Видаляє одну підписку за її id."""
+    sql = "DELETE FROM subscriptions WHERE id = ?"
+    async with aiosqlite.connect(settings.DB_PATH) as db:
+        await db.execute(sql, (sub_id,))
+        await db.commit()
+
+
 async def get_all_subscriptions() -> List[Dict[str, Any]]:
     """Отримує всі активні підписки для перевірки планивальником."""
     sql = "SELECT id, user_id, currency, condition, target_rate FROM subscriptions"
@@ -80,7 +88,7 @@ async def get_rate_history(currency: str, days: int = 7, source: str = "nbu") ->
     SELECT date, rate_buy, rate_sell 
     FROM rate_history 
     WHERE currency = ? AND source = ?
-    ORDER BY date ASC
+    ORDER BY date DESC
     LIMIT ?
     """
     async with aiosqlite.connect(settings.DB_PATH) as db:

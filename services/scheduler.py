@@ -1,7 +1,7 @@
 import operator
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from database.db import save_rate_history, get_all_subscriptions
+from database.db import save_rate_history, get_all_subscriptions, remove_subscription_by_id
 from services.nbu_api import get_nbu_rate_by_code, get_nbu_rates
 
 # Словник для безпечного порівняння значень у підписках
@@ -15,7 +15,7 @@ OPERATORS = {
 
 async def check_subscriptions_task(bot: Bot) -> None:
     """
-    Пеperiodична задача: перевіряє курси та надсилає сповіщення користувачам,
+    Періодична задача: перевіряє курси та надсилає сповіщення користувачам,
     якщо виконується умова підписки.
     """
     subscriptions = await get_all_subscriptions()
@@ -36,6 +36,8 @@ async def check_subscriptions_task(bot: Bot) -> None:
             )
             try:
                 await bot.send_message(chat_id=sub["user_id"], text=text, parse_mode="Markdown")
+                # Одноразова підписка — видаляємо після виконання
+                await remove_subscription_by_id(sub["id"])
             except Exception:
                 # Обробка випадків, коли користувач заблокував бота
                 pass
@@ -43,7 +45,7 @@ async def check_subscriptions_task(bot: Bot) -> None:
 
 async def save_daily_rates_task() -> None:
     """
-    Пеperiodична задача: зберігає актуальні курси НБУ в БД для формування історії.
+    Періодична задача: зберігає актуальні курси НБУ в БД для формування історії.
     """
     rates = await get_nbu_rates()
     for rate in rates:
