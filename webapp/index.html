@@ -11,13 +11,11 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
-      --color-bg: #1CCFA9;
-      --color-panel: #C6FF3F;
+      --color-bg: #F4EFE6;         /* Бежевий фон з картинок */
+      --color-panel: #FFFFFF;
       --color-outline: #111111;
       --color-card: #FFFFFF;
-      --color-accent-orange: #FF8A5B;
-      --color-accent-purple: #B685FF;
-      --color-accent-pink: #FF6E8E;
+      --color-accent-red: #D92525;  /* Червоний акцент з картинок */
       --color-text: #111111;
     }
 
@@ -47,6 +45,26 @@
       box-shadow: 6px 6px 0px var(--color-outline);
     }
 
+    .hero-banner {
+      width: 100%;
+      margin-bottom: 16px;
+      border-radius: 16px;
+      border: 3px solid var(--color-outline);
+      box-shadow: 4px 4px 0px var(--color-outline);
+      overflow: hidden;
+      background: #F4EFE6;
+      display: flex;
+      justify-content: center;
+      max-height: 180px;
+    }
+
+    .hero-banner img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
     h1 {
       font-size: 22px;
       font-weight: 900;
@@ -68,8 +86,17 @@
     .card-title {
       font-weight: 800;
       font-size: 15px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
       text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-title img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
     }
 
     .rates-grid {
@@ -79,7 +106,7 @@
     }
 
     .rate-box {
-      background: var(--color-panel);
+      background: var(--color-bg);
       border: 2px solid var(--color-outline);
       border-radius: 12px;
       padding: 8px;
@@ -95,6 +122,7 @@
       font-size: 15px;
       font-weight: 800;
       margin-top: 2px;
+      color: var(--color-accent-red);
     }
 
     .convert-row {
@@ -129,7 +157,7 @@
     }
 
     .btn-swap {
-      background-color: var(--color-accent-purple);
+      background-color: var(--color-accent-red);
       color: #fff;
       border: 2px solid var(--color-outline);
       border-radius: 10px;
@@ -152,14 +180,14 @@
       font-weight: 900;
       margin-top: 6px;
       text-align: center;
-      background: var(--color-panel);
+      background: var(--color-bg);
       border: 2px solid var(--color-outline);
       border-radius: 12px;
       padding: 10px;
     }
 
     .error-msg {
-      color: var(--color-accent-pink);
+      color: var(--color-accent-red);
       font-weight: 700;
       font-size: 13px;
       text-align: center;
@@ -170,13 +198,22 @@
 </head>
 <body>
   <div class="app-container">
+
+    <!-- 1. Скарбничка у шапці -->
+    <div class="hero-banner">
+      <img src="/static/images/hero-banner.png" alt="Hero Banner">
+    </div>
+
     <h1>💱 Currency Mini App</h1>
 
     <div id="errorBanner" class="error-msg">⚠️ Не вдалося завантажити актуальні дані з сервера</div>
 
-    <!-- Картка курсів -->
+    <!-- 2. Картка курсів із банкою монет -->
     <div class="card">
-      <div class="card-title">Поточні курси НБУ (в UAH)</div>
+      <div class="card-title">
+        <img src="/static/images/jar-icon.png" alt="Jar Icon">
+        Поточні курси НБУ (в UAH)
+      </div>
       <div class="rates-grid">
         <div class="rate-box">
           <div class="currency">USD 💵</div>
@@ -193,9 +230,12 @@
       </div>
     </div>
 
-    <!-- Двосторонній мультивалютний конвертер -->
+    <!-- 3. Мультивалютний Конвертер з картками -->
     <div class="card">
-      <div class="card-title">Мультивалютний Конвертер</div>
+      <div class="card-title">
+        <img src="/static/images/cards-icon.png" alt="Cards Icon">
+        Мультивалютний Конвертер
+      </div>
       <div style="margin-bottom: 10px;">
         <label for="amountInput">Сума:</label>
         <input type="number" id="amountInput" placeholder="Введіть суму" value="100" min="0">
@@ -232,9 +272,23 @@
       <div class="result-text" id="calcResult">--.--</div>
     </div>
 
-    <!-- Графік -->
+    <!-- 4. Статистика (Стовпчастий графік) -->
     <div class="card">
-      <div class="card-title" id="chartTitle">Динаміка курсів (30 днів)</div>
+      <div class="card-title">
+        <img src="/static/images/bar-chart-icon.png" alt="Bar Chart Icon">
+        Огляд динаміки
+      </div>
+      <div style="font-size: 13px; font-weight: 700; color: #555; text-align: center;">
+        📊 Інтерактивний огляд історичних курсів НБУ
+      </div>
+    </div>
+
+    <!-- 5. Інтерактивний графік (Лінійний графік Chart.js) -->
+    <div class="card">
+      <div class="card-title">
+        <img src="/static/images/chart-icon.png" alt="Chart Icon">
+        <span id="chartTitle">Динаміка курсів (30 днів)</span>
+      </div>
       <canvas id="rateChart" height="180"></canvas>
     </div>
   </div>
@@ -272,7 +326,7 @@
         if (!res.ok) throw new Error("HTTP error " + res.status);
         const result = await res.json();
 
-        const labels = result.data.map(item => item.date.slice(5)); // MM-DD
+        const labels = result.data.map(item => item.date.slice(5));
         const chartRates = result.data.map(item => item.rate);
 
         renderChart(labels, chartRates, currency);
@@ -294,12 +348,12 @@
           datasets: [{
             label: `Курс ${currency}`,
             data: chartRates.length ? chartRates : [0],
-            borderColor: '#111111',
+            borderColor: '#D92525',
             borderWidth: 3,
-            backgroundColor: '#FF8A5B',
-            pointBackgroundColor: '#C6FF3F',
+            backgroundColor: 'rgba(217, 37, 37, 0.1)',
+            pointBackgroundColor: '#111111',
             pointRadius: 4,
-            fill: false,
+            fill: true,
             tension: 0.2
           }]
         },
@@ -327,16 +381,13 @@
         return;
       }
 
-      // Перерахунок через базову валюту UAH: Amount * RateFrom / RateTo
       const converted = (amount * fromRate) / toRate;
       document.getElementById('calcResult').innerText = `${converted.toLocaleString('uk-UA', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${toCurr}`;
 
-      // Якщо у виборі є іноземна валюта, показуємо її графік
       const activeCurr = fromCurr !== 'UAH' ? fromCurr : (toCurr !== 'UAH' ? toCurr : 'USD');
       loadChartData(activeCurr);
     }
 
-    // Реверс валют
     document.getElementById('btnSwap').addEventListener('click', () => {
       const fromSel = document.getElementById('fromSelect');
       const toSel = document.getElementById('toSelect');
@@ -350,7 +401,6 @@
     document.getElementById('fromSelect').addEventListener('change', calculate);
     document.getElementById('toSelect').addEventListener('change', calculate);
 
-    // Ініціалізація
     loadRates();
     loadChartData('USD');
   </script>

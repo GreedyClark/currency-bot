@@ -1,6 +1,7 @@
 import io
 import logging
 from aiogram import Router, F, types
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -16,10 +17,14 @@ from handlers.rate import get_rate_change_indicator
 logger = logging.getLogger(__name__)
 router = Router()
 
+SUPPORTED_CURRENCIES = {"USD", "EUR", "PLN", "GBP", "CHF"}
+SUPPORTED_CURRENCIES_ALL = {"USD", "EUR", "PLN", "GBP", "CHF", "UAH"}
+
 
 # --- FSM Стани ---
 class ConvertState(StatesGroup):
-    waiting_for_currency = State()
+    waiting_for_from_currency = State()
+    waiting_for_to_currency = State()
     waiting_for_amount = State()
 
 
@@ -75,17 +80,42 @@ async def safe_edit_or_send(
 
 
 def get_back_keyboard() -> types.InlineKeyboardMarkup:
+    """Клавіатура з кнопкою Назад."""
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад", callback_data="menu_back")
     return builder.as_markup()
 
 
 def get_currency_keyboard() -> types.InlineKeyboardMarkup:
+    """Стандартна клавіатура вибору іноземної валюти (для підписок та історії)."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="USD 💵", callback_data="select_curr_USD")
-    builder.button(text="EUR 💶", callback_data="select_curr_EUR")
+    builder.button(text="💵 USD", callback_data="select_curr_USD")
+    builder.button(text="💶 EUR", callback_data="select_curr_EUR")
+    builder.button(text="🇵🇱 PLN", callback_data="select_curr_PLN")
+    builder.button(text="💷 GBP", callback_data="select_curr_GBP")
+    builder.button(text="🇨🇭 CHF", callback_data="select_curr_CHF")
     builder.button(text="⬅️ Назад", callback_data="menu_back")
-    builder.adjust(2, 1)
+    builder.adjust(2, 3, 1)
+    return builder.as_markup()
+
+
+def get_convert_currency_keyboard(action_prefix: str, exclude_code: str = None) -> types.InlineKeyboardMarkup:
+    """Клавіатура вибору валюти для конвертера (включаючи UAH)."""
+    builder = InlineKeyboardBuilder()
+    currencies = [
+        ("🇺🇦 UAH", "UAH"),
+        ("💵 USD", "USD"),
+        ("💶 EUR", "EUR"),
+        ("🇵🇱 PLN", "PLN"),
+        ("💷 GBP", "GBP"),
+        ("🇨🇭 CHF", "CHF"),
+    ]
+    for label, code in currencies:
+        if code != exclude_code:
+            builder.button(text=label, callback_data=f"{action_prefix}_{code}")
+
+    builder.button(text="⬅️ Назад", callback_data="menu_back")
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
 
 
@@ -112,10 +142,10 @@ async def process_menu_rate(callback: types.CallbackQuery) -> None:
         text_lines = ["<b>📊 Поточний курс валют (НБУ):</b>\n"]
         for r in rates:
             code = r.get("cc")
-            if code in ["USD", "EUR"]:
+            if code in SUPPORTED_CURRENCIES:
                 val = r.get("rate", 0.0)
                 indicator = await get_rate_change_indicator(code, val)
-                text_lines.append(f"{code}: <b>{val:.2f}</b> UAH{indicator}")
+                text_lines.append(f"• <b>{code}</b>: <code>{val:.2f}</code> UAH{indicator}")
 
         text_lines.append("\nОновлено автоматично.")
         builder = InlineKeyboardBuilder()
@@ -128,25 +158,51 @@ async def process_menu_rate(callback: types.CallbackQuery) -> None:
         await callback.answer()
 
 
-# --- 2. Конвертер (menu_convert) ---
+# --- 2. Двосторонній Конвертер (menu_convert) ---
 @router.callback_query(F.data == "menu_convert")
 async def process_menu_convert(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Крок 1: Вибір валюти, З ЯКОЇ конвертуємо."""
     try:
-        await state.set_state(ConvertState.waiting_for_currency)
-        await safe_edit_or_send(callback, "🔄 <b>Конвертер</b>\n\nОберіть валюту:", reply_markup=get_currency_keyboard())
+        await state.set_state(ConvertState.waiting_for_from_currency)
+        await safe_edit_or_send(
+            callback,
+            "🔄 <b>Мультивалютний Конвертер</b>\n\nОберіть валюту, <b>З ЯКОЇ</b> хочете конвертувати:",
+            reply_markup=get_convert_currency_keyboard("convert_from")
+        )
     finally:
         await callback.answer()
 
 
-@router.callback_query(ConvertState.waiting_for_currency, F.data.startswith("select_curr_"))
-async def process_convert_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(ConvertState.waiting_for_from_currency, F.data.startswith("convert_from_"))
+async def process_convert_from_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Крок 2: Збереження From-валюти та вибір валюти, У ЯКУ конвертуємо."""
     try:
-        curr = callback.data.split("_")[-1]
-        await state.update_data(currency=curr)
+        from_curr = callback.data.split("_")[-1]
+        await state.update_data(from_currency=from_curr)
+        await state.set_state(ConvertState.waiting_for_to_currency)
+
+        await safe_edit_or_send(
+            callback,
+            f"🔄 <b>Конвертація:</b> {from_curr} ➔ ...\n\nОберіть валюту, <b>У ЯКУ</b> хочете конвертувати:",
+            reply_markup=get_convert_currency_keyboard("convert_to", exclude_code=from_curr)
+        )
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(ConvertState.waiting_for_to_currency, F.data.startswith("convert_to_"))
+async def process_convert_to_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Крок 3: Збереження To-валюти та запит суми."""
+    try:
+        to_curr = callback.data.split("_")[-1]
+        await state.update_data(to_currency=to_curr)
+        data = await state.get_data()
+        from_curr = data.get("from_currency")
+
         await state.set_state(ConvertState.waiting_for_amount)
         await safe_edit_or_send(
             callback,
-            f"Введіть суму у <b>{curr}</b> для конвертації в UAH:",
+            f"🔄 <b>Напрямок:</b> {from_curr} ➔ {to_curr}\n\nВведіть суму у <b>{from_curr}</b>:",
             reply_markup=get_back_keyboard()
         )
     finally:
@@ -155,6 +211,7 @@ async def process_convert_currency(callback: types.CallbackQuery, state: FSMCont
 
 @router.message(ConvertState.waiting_for_amount)
 async def process_convert_amount(message: types.Message, state: FSMContext) -> None:
+    """Крок 4: Введення суми та розрахунок крос-курсом."""
     raw_text = message.text.replace(",", ".").strip() if message.text else ""
     try:
         amount = float(raw_text)
@@ -165,23 +222,82 @@ async def process_convert_amount(message: types.Message, state: FSMContext) -> N
         return
 
     data = await state.get_data()
-    curr = data.get("currency", "USD")
-    rate = await get_nbu_rate_by_code(curr)
+    from_curr = data.get("from_currency", "UAH")
+    to_curr = data.get("to_currency", "USD")
 
-    if not rate:
-        await message.answer("❌ Не вдалося отримати актуальний курс.", reply_markup=get_back_keyboard())
+    rate_from = 1.0 if from_curr == "UAH" else await get_nbu_rate_by_code(from_curr)
+    rate_to = 1.0 if to_curr == "UAH" else await get_nbu_rate_by_code(to_curr)
+
+    if not rate_from or not rate_to:
+        await message.answer("❌ Не вдалося отримати актуальний курс від НБУ.", reply_markup=get_back_keyboard())
         await state.clear()
         return
 
-    result = amount * rate
+    result = (amount * rate_from) / rate_to
     await state.clear()
 
     res_text = (
         f"💱 <b>Результат конвертації:</b>\n\n"
-        f"<code>{amount:,.2f}</code> {curr} = <code>{result:,.2f}</code> UAH\n"
-        f"<i>(Курс НБУ: <code>{rate:.2f}</code> UAH)</i>"
+        f"<code>{amount:,.2f}</code> <b>{from_curr}</b> = <code>{result:,.2f}</code> <b>{to_curr}</b>\n\n"
+        f"<i>• Курс {from_curr}: {rate_from:.2f} UAH\n"
+        f"• Курс {to_curr}: {rate_to:.2f} UAH</i>"
     )
     await message.answer(res_text, reply_markup=get_main_menu_keyboard())
+
+
+# --- Пряма команда /convert ---
+@router.message(Command("convert"))
+async def cmd_convert_direct(message: types.Message):
+    """
+    Формати прямої команди:
+    • /convert <сума> <з_валюти> <у_валюту> (наприклад: /convert 100 usd eur)
+    • /convert <сума> <валюта> (автоматично переводить в UAH)
+    """
+    args = message.text.split()[1:]
+    if not args:
+        await message.answer(
+            "⚠️ <b>Формат команди:</b>\n"
+            "<code>/convert <сума> <з_валюти> <у_валюту></code>\n\n"
+            "<b>Приклади:</b>\n"
+            "• <code>/convert 100 uah usd</code>\n"
+            "• <code>/convert 100 usd eur</code>\n"
+            "• <code>/convert 250 pln uah</code>"
+        )
+        return
+
+    try:
+        amount = float(args[0].replace(",", "."))
+    except ValueError:
+        await message.answer("❌ Будь ласка, введіть коректне число для суми.")
+        return
+
+    from_curr = args[1].upper() if len(args) >= 2 else "USD"
+    to_curr = args[2].upper() if len(args) >= 3 else ("UAH" if from_curr != "UAH" else "USD")
+
+    if from_curr not in SUPPORTED_CURRENCIES_ALL or to_curr not in SUPPORTED_CURRENCIES_ALL:
+        await message.answer("❌ Валюта не підтримується. Доступні: UAH, USD, EUR, PLN, GBP, CHF.")
+        return
+
+    if amount <= 0:
+        await message.answer("❌ Сума має бути більшою за 0.")
+        return
+
+    rate_from = 1.0 if from_curr == "UAH" else await get_nbu_rate_by_code(from_curr)
+    rate_to = 1.0 if to_curr == "UAH" else await get_nbu_rate_by_code(to_curr)
+
+    if not rate_from or not rate_to:
+        await message.answer("❌ Не вдалося отримати актуальний курс.")
+        return
+
+    result = (amount * rate_from) / rate_to
+
+    await message.answer(
+        f"💱 <b>Результат конвертації:</b>\n\n"
+        f"<code>{amount:,.2f}</code> <b>{from_curr}</b> = <code>{result:,.2f}</code> <b>{to_curr}</b>\n\n"
+        f"<i>• Курс {from_curr}: {rate_from:.2f} UAH\n"
+        f"• Курс {to_curr}: {rate_to:.2f} UAH</i>",
+        reply_markup=get_main_menu_keyboard()
+    )
 
 
 # --- 3. Підписки (menu_subscribe) ---
@@ -305,7 +421,7 @@ async def process_history_days(callback: types.CallbackQuery, state: FSMContext)
         if not history_data or len(history_data) < 2:
             await safe_edit_or_send(
                 callback,
-                f"ℹ️ Для побудови графіка недостатньо даних в БД за останні {days} днів.",
+                f"ℹ️ Для побудови графіка недостатньо даних у базі за останні {days} днів.",
                 reply_markup=get_back_keyboard()
             )
             return
