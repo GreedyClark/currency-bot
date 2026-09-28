@@ -19,7 +19,6 @@
       --color-accent-purple: #B685FF;
       --color-accent-pink: #FF6E8E;
       --color-text: #111111;
-      --color-text-muted: #555555;
     }
 
     * {
@@ -73,36 +72,49 @@
       text-transform: uppercase;
     }
 
-    .rates-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
+    .rates-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
     }
 
     .rate-box {
-      flex: 1;
       background: var(--color-panel);
       border: 2px solid var(--color-outline);
       border-radius: 12px;
-      padding: 10px;
+      padding: 8px;
       text-align: center;
     }
 
     .rate-box .currency {
       font-weight: 900;
-      font-size: 16px;
+      font-size: 14px;
     }
 
     .rate-box .val {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 800;
-      margin-top: 4px;
+      margin-top: 2px;
     }
 
-    .convert-form {
+    .convert-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .select-group {
+      flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 4px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
     }
 
     input, select {
@@ -112,13 +124,38 @@
       font-weight: 700;
       font-size: 15px;
       outline: none;
+      background: #fff;
+      width: 100%;
+    }
+
+    .btn-swap {
+      background-color: var(--color-accent-purple);
+      color: #fff;
+      border: 2px solid var(--color-outline);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 900;
+      font-size: 18px;
+      cursor: pointer;
+      box-shadow: 2px 2px 0px var(--color-outline);
+      margin-top: 18px;
+      transition: transform 0.1s;
+    }
+
+    .btn-swap:active {
+      transform: translate(2px, 2px);
+      box-shadow: 0px 0px 0px;
     }
 
     .result-text {
-      font-size: 18px;
-      font-weight: 800;
-      margin-top: 4px;
+      font-size: 19px;
+      font-weight: 900;
+      margin-top: 6px;
       text-align: center;
+      background: var(--color-panel);
+      border: 2px solid var(--color-outline);
+      border-radius: 12px;
+      padding: 10px;
     }
 
     .error-msg {
@@ -127,6 +164,7 @@
       font-size: 13px;
       text-align: center;
       display: none;
+      margin-bottom: 10px;
     }
   </style>
 </head>
@@ -138,36 +176,66 @@
 
     <!-- Картка курсів -->
     <div class="card">
-      <div class="card-title">Поточні курси НБУ</div>
-      <div class="rates-row">
+      <div class="card-title">Поточні курси НБУ (в UAH)</div>
+      <div class="rates-grid">
         <div class="rate-box">
-          <div class="currency">USD</div>
+          <div class="currency">USD 💵</div>
           <div class="val" id="usd-rate">--.--</div>
         </div>
         <div class="rate-box">
-          <div class="currency">EUR</div>
+          <div class="currency">EUR 💶</div>
           <div class="val" id="eur-rate">--.--</div>
         </div>
+        <div class="rate-box">
+          <div class="currency">PLN 🇵🇱</div>
+          <div class="val" id="pln-rate">--.--</div>
+        </div>
       </div>
+    </div>
+
+    <!-- Двосторонній мультивалютний конвертер -->
+    <div class="card">
+      <div class="card-title">Мультивалютний Конвертер</div>
+      <div style="margin-bottom: 10px;">
+        <label for="amountInput">Сума:</label>
+        <input type="number" id="amountInput" placeholder="Введіть суму" value="100" min="0">
+      </div>
+
+      <div class="convert-row">
+        <div class="select-group">
+          <label for="fromSelect">З валюти:</label>
+          <select id="fromSelect">
+            <option value="USD">USD 💵</option>
+            <option value="EUR">EUR 💶</option>
+            <option value="PLN">PLN 🇵🇱</option>
+            <option value="GBP">GBP 💷</option>
+            <option value="CHF">CHF 🇨🇭</option>
+            <option value="UAH" selected>UAH 🇺🇦</option>
+          </select>
+        </div>
+
+        <button class="btn-swap" id="btnSwap" title="Поміняти місцями">⇄</button>
+
+        <div class="select-group">
+          <label for="toSelect">У валюту:</label>
+          <select id="toSelect">
+            <option value="USD" selected>USD 💵</option>
+            <option value="EUR">EUR 💶</option>
+            <option value="PLN">PLN 🇵🇱</option>
+            <option value="GBP">GBP 💷</option>
+            <option value="CHF">CHF 🇨🇭</option>
+            <option value="UAH">UAH 🇺🇦</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="result-text" id="calcResult">--.--</div>
     </div>
 
     <!-- Графік -->
     <div class="card">
-      <div class="card-title" id="chartTitle">Динаміка USD (30 днів)</div>
+      <div class="card-title" id="chartTitle">Динаміка курсів (30 днів)</div>
       <canvas id="rateChart" height="180"></canvas>
-    </div>
-
-    <!-- Конвертер -->
-    <div class="card">
-      <div class="card-title">Швидка конвертація</div>
-      <div class="convert-form">
-        <input type="number" id="amountInput" placeholder="Сума" value="100" min="0">
-        <select id="currencySelect">
-          <option value="USD">USD ➔ UAH</option>
-          <option value="EUR">EUR ➔ UAH</option>
-        </select>
-        <div class="result-text" id="calcResult">-- UAH</div>
-      </div>
     </div>
   </div>
 
@@ -178,21 +246,19 @@
       tg.expand();
     }
 
-    let usdRate = null;
-    let eurRate = null;
+    let rates = { UAH: 1.0 };
     let chartInstance = null;
 
     async function loadRates() {
       try {
         const res = await fetch('/api/rates');
         if (!res.ok) throw new Error("HTTP error " + res.status);
-        const data = await res.json();
+        rates = await res.json();
 
-        if (data.USD) usdRate = data.USD;
-        if (data.EUR) eurRate = data.EUR;
+        document.getElementById('usd-rate').innerText = rates.USD ? rates.USD.toFixed(2) : "N/A";
+        document.getElementById('eur-rate').innerText = rates.EUR ? rates.EUR.toFixed(2) : "N/A";
+        document.getElementById('pln-rate').innerText = rates.PLN ? rates.PLN.toFixed(2) : "N/A";
 
-        document.getElementById('usd-rate').innerText = usdRate ? usdRate.toFixed(2) + " UAH" : "N/A";
-        document.getElementById('eur-rate').innerText = eurRate ? eurRate.toFixed(2) + " UAH" : "N/A";
         calculate();
       } catch (e) {
         console.error("Error loading rates:", e);
@@ -207,21 +273,19 @@
         const result = await res.json();
 
         const labels = result.data.map(item => item.date.slice(5)); // MM-DD
-        const rates = result.data.map(item => item.rate);
+        const chartRates = result.data.map(item => item.rate);
 
-        renderChart(labels, rates, currency);
+        renderChart(labels, chartRates, currency);
       } catch (e) {
         console.error("Error loading chart history:", e);
       }
     }
 
-    function renderChart(labels, rates, currency) {
+    function renderChart(labels, chartRates, currency) {
       const ctx = document.getElementById('rateChart').getContext('2d');
       document.getElementById('chartTitle').innerText = `Динаміка ${currency} (${labels.length} дн.)`;
 
-      if (chartInstance) {
-        chartInstance.destroy();
-      }
+      if (chartInstance) chartInstance.destroy();
 
       chartInstance = new Chart(ctx, {
         type: 'line',
@@ -229,7 +293,7 @@
           labels: labels.length ? labels : ['Немає даних'],
           datasets: [{
             label: `Курс ${currency}`,
-            data: rates.length ? rates : [0],
+            data: chartRates.length ? chartRates : [0],
             borderColor: '#111111',
             borderWidth: 3,
             backgroundColor: '#FF8A5B',
@@ -252,24 +316,41 @@
 
     function calculate() {
       const amount = parseFloat(document.getElementById('amountInput').value) || 0;
-      const curr = document.getElementById('currencySelect').value;
-      const rate = curr === 'USD' ? usdRate : eurRate;
+      const fromCurr = document.getElementById('fromSelect').value;
+      const toCurr = document.getElementById('toSelect').value;
 
-      if (!rate) {
+      const fromRate = rates[fromCurr];
+      const toRate = rates[toCurr];
+
+      if (!fromRate || !toRate) {
         document.getElementById('calcResult').innerText = "Немає даних";
         return;
       }
-      const res = amount * rate;
-      document.getElementById('calcResult').innerText = `${res.toLocaleString('uk-UA', {minimumFractionDigits: 2, maximumFractionDigits: 2})} UAH`;
+
+      // Перерахунок через базову валюту UAH: Amount * RateFrom / RateTo
+      const converted = (amount * fromRate) / toRate;
+      document.getElementById('calcResult').innerText = `${converted.toLocaleString('uk-UA', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${toCurr}`;
+
+      // Якщо у виборі є іноземна валюта, показуємо її графік
+      const activeCurr = fromCurr !== 'UAH' ? fromCurr : (toCurr !== 'UAH' ? toCurr : 'USD');
+      loadChartData(activeCurr);
     }
 
-    document.getElementById('amountInput').addEventListener('input', calculate);
-    document.getElementById('currencySelect').addEventListener('change', (e) => {
+    // Реверс валют
+    document.getElementById('btnSwap').addEventListener('click', () => {
+      const fromSel = document.getElementById('fromSelect');
+      const toSel = document.getElementById('toSelect');
+      const temp = fromSel.value;
+      fromSel.value = toSel.value;
+      toSel.value = temp;
       calculate();
-      loadChartData(e.target.value);
     });
 
-    // Початкове завантаження
+    document.getElementById('amountInput').addEventListener('input', calculate);
+    document.getElementById('fromSelect').addEventListener('change', calculate);
+    document.getElementById('toSelect').addEventListener('change', calculate);
+
+    // Ініціалізація
     loadRates();
     loadChartData('USD');
   </script>
