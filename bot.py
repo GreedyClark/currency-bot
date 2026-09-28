@@ -6,7 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from config import settings
-from database.db import init_db
+from database.db import init_db, backfill_nbu_history_if_empty
 from handlers import start, rate, subscribe, history, menu_callbacks
 from services.scheduler import setup_scheduler
 from services.api import app as fastapi_app
@@ -37,6 +37,7 @@ async def main() -> None:
     await init_db()
     logger.info("Базу даних ініціалізовано.")
 
+    # Автоматично заповнюємо історію курсів за 30 днів, якщо БД порожня
     await backfill_nbu_history_if_empty()
 
     # Встановлюємо дефолтний HTML parse_mode для всього бота
