@@ -1,4 +1,5 @@
 import io
+import asyncio
 import matplotlib
 import matplotlib.pyplot as plt
 from aiogram import Router, types
@@ -11,25 +12,30 @@ matplotlib.use("Agg")
 router = Router()
 
 
-def generate_chart(history_data: list, currency: str) -> io.BytesIO:
-    """Генерує графік зміни курсу валюти в буфер пам'яті."""
+def _build_chart_sync(history_data: list, currency: str) -> io.BytesIO:
+    """Синхронне створення графіка Matplotlib через об'єкт Figure (без глобального pyplot)."""
     dates = [item["date"] for item in history_data]
     rates = [item["rate_buy"] for item in history_data]
 
-    plt.figure(figsize=(8, 4))
-    plt.plot(dates, rates, marker="o", color="#1f77b4", linewidth=2)
-    plt.title(f"Динаміка курсу {currency.upper()} (НБУ)", fontsize=14, fontweight="bold")
-    plt.xlabel("Дата", fontsize=10)
-    plt.ylabel("Курс (UAH)", fontsize=10)
-    plt.grid(True, linestyle="--", alpha=0.6)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(dates, rates, marker="o", color="#1f77b4", linewidth=2)
+    ax.set_title(f"Динаміка курсу {currency.upper()} (НБУ)", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Дата", fontsize=10)
+    ax.set_ylabel("Курс (UAH)", fontsize=10)
+    ax.grid(True, linestyle="--", alpha=0.6)
     plt.xticks(rotation=45)
     plt.tight_layout()
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=120)
-    plt.close()
+    fig.savefig(buf, format="png", dpi=120)
+    plt.close(fig)
     buf.seek(0)
     return buf
+
+
+async def generate_chart(history_data: list, currency: str) -> io.BytesIO:
+    """Асинхронна обгортка для створення графіка в окремому потоці."""
+    return await asyncio.to_thread(_build_chart_sync, history_data, currency)
 
 
 @router.message(Command("history"))
@@ -40,7 +46,13 @@ async def cmd_history(message: types.Message) -> None:
 
     args = message.text.split()[1:]
     currency = args[0].upper() if len(args) > 0 else "USD"
-    days = int(args[1]) if len(args) > 1 and args[1].isdigit() else 7
+
+    # Валідація кількості днів (від 1 до 90)
+    try:
+        days = int(args[1]) if len(args) > 1 else 7
+        days = max(1, min(days, 90))
+    except ValueError:
+        days = 7
 
     if currency not in ["USD", "EUR"]:
         await message.answer("❌ Графіки доступні тільки для <b>USD</b> та <b>EUR</b>.")
@@ -52,7 +64,7 @@ async def cmd_history(message: types.Message) -> None:
         return
 
     history_data = list(reversed(history_data))
-    chart_buf = generate_chart(history_data, currency)
+    chart_buf = await generate_chart(history_data, currency)
     photo = BufferedInputFile(chart_buf.getvalue(), filename=f"{currency}_history.png")
 
     await message.answer_photo(
@@ -70,12 +82,19 @@ async def inline_convert(inline_query: InlineQuery) -> None:
 
     args = query.split()
     raw_amount = args[0].replace(",", ".")
-    if len(args) < 2 or not raw_amount.replace(".", "", 1).isdigit():
+
+    # Підтримка як цілих, так і дробових чисел (100 або 100.5 або 100,5)
+    try:
+        amount = float(raw_amount)
+        if amount <= 0:
+            return
+    except ValueError:
         return
 
-    amount = float(raw_amount)
-    currency = args[1].upper()
+    if len(args) < 2:
+        return
 
+    currency = args[1].upper()
     if currency not in ["USD", "EUR"]:
         return
 

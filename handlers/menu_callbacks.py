@@ -48,7 +48,6 @@ async def safe_edit_or_send(
     if not msg:
         return
 
-    # Якщо це фотографічна картка (з графіком) — видаляємо її та відправляємо нове меню
     if msg.photo:
         try:
             await msg.delete()
@@ -62,7 +61,6 @@ async def safe_edit_or_send(
     except TelegramBadRequest as e:
         err_msg = str(e).lower()
         if "message is not modified" in err_msg:
-            # Текст не змінився — показуємо легке сповіщення у вспливаючому вікні
             await callback.answer("ℹ️ Дані вже актуальні!", show_alert=False)
             return
         elif "there is no text to edit" in err_msg or "message can't be edited" in err_msg:
@@ -313,7 +311,7 @@ async def process_history_days(callback: types.CallbackQuery, state: FSMContext)
             return
 
         history_data = list(reversed(history_data))
-        chart_buf = generate_chart(history_data, curr)
+        chart_buf = await generate_chart(history_data, curr)
         photo = BufferedInputFile(chart_buf.getvalue(), filename=f"{curr}_history.png")
 
         if callback.message:
@@ -329,3 +327,16 @@ async def process_history_days(callback: types.CallbackQuery, state: FSMContext)
         )
     finally:
         await callback.answer()
+
+
+# --- Фолбек для застарілих/невідомих кнопок ---
+@router.callback_query()
+async def process_unknown_callback(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Фолбек для будь-яких неопрацьованих або застарілих callback-запитів."""
+    await state.clear()
+    await safe_edit_or_send(
+        callback,
+        "<b>Сесію оновлено.</b> 👋\n\nОберіть потрібний розділ за допомогою кнопок нижче:",
+        reply_markup=get_main_menu_keyboard()
+    )
+    await callback.answer()
