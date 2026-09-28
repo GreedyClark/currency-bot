@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import webbrowser
-import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -10,7 +8,6 @@ from config import settings
 from database.db import init_db, backfill_nbu_history_if_empty
 from handlers import start, rate, subscribe, history, menu_callbacks
 from services.scheduler import setup_scheduler
-from services.api import app as fastapi_app
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,27 +16,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def start_fastapi_server() -> None:
-    """Запуск FastAPI сервера для Mini App у фоновому режимі."""
-    config = uvicorn.Config(
-        app=fastapi_app,
-        host="0.0.0.0",
-        port=8000,
-        log_level="warning"
-    )
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
-async def open_browser_delayed() -> None:
-    """Автоматично відкриває сторінку Mini App у браузері після запуску сервера."""
-    await asyncio.sleep(1.5)  # Чекаємо 1.5 сек, щоб Uvicorn встиг стартувати
-    logger.info("Автоматичне відкриття Mini App у браузері (http://localhost:8000)...")
-    webbrowser.open("http://localhost:8000")
-
-
 async def main() -> None:
-    """Точка входу для запуску бота та FastAPI сервера."""
+    """Точка входу для запуску Telegram бота."""
     logger.info("Запуск Currency Bot...")
 
     await init_db()
@@ -62,20 +40,15 @@ async def main() -> None:
     dp.include_router(history.router)
     dp.include_router(menu_callbacks.router)
 
-    # Планувальник
+    # Планувальник задач (підписки та щоденні курси)
     scheduler = setup_scheduler(bot)
     scheduler.start()
     logger.info("Планувальник задач APScheduler запущено.")
 
     await bot.delete_webhook(drop_pending_updates=True)
 
-    # Запускаємо паралельно бот, FastAPI сервер та автовідкриття браузера
     try:
-        await asyncio.gather(
-            dp.start_polling(bot),
-            start_fastapi_server(),
-            open_browser_delayed()
-        )
+        await dp.start_polling(bot)
     finally:
         await bot.session.close()
 
@@ -84,4 +57,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Бот та сервер зупинені.")
+        logger.info("Бот зупинений.")
