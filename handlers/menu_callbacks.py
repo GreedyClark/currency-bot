@@ -1,9 +1,11 @@
 import io
+import logging
 from aiogram import Router, F, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import BufferedInputFile
+from aiogram.exceptions import TelegramBadRequest
 
 from services.nbu_api import get_nbu_rates, get_nbu_rate_by_code
 from database.db import add_subscription, get_rate_history
@@ -11,6 +13,7 @@ from handlers.history import generate_chart
 from handlers.start import get_main_menu_keyboard
 from handlers.rate import get_rate_change_indicator
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 
@@ -31,7 +34,48 @@ class HistoryState(StatesGroup):
     waiting_for_days = State()
 
 
-# --- Допоміжні клавіатури ---
+# --- Допоміжні функції та клавіатури ---
+async def safe_edit_or_send(
+    callback: types.CallbackQuery,
+    text: str,
+    reply_markup: types.InlineKeyboardMarkup = None
+) -> None:
+    """
+    Безпечно оновлює текст повідомлення або надсилає нове,
+    якщо попереднє повідомлення містило фотографію (графік).
+    """
+    msg = callback.message
+    if not msg:
+        return
+
+    # Якщо це фотографічна картка (з графіком) — видаляємо її та відправляємо нове меню
+    if msg.photo:
+        try:
+            await msg.delete()
+        except TelegramBadRequest:
+            pass
+        await msg.answer(text, reply_markup=reply_markup)
+        return
+
+    try:
+        await msg.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest as e:
+        err_msg = str(e).lower()
+        if "message is not modified" in err_msg:
+            # Текст не змінився — показуємо легке сповіщення у вспливаючому вікні
+            await callback.answer("ℹ️ Дані вже актуальні!", show_alert=False)
+            return
+        elif "there is no text to edit" in err_msg or "message can't be edited" in err_msg:
+            try:
+                await msg.delete()
+            except TelegramBadRequest:
+                pass
+            await msg.answer(text, reply_markup=reply_markup)
+        else:
+            logger.error(f"Помилка при редагуванні повідомлення: {e}")
+            raise e
+
+
 def get_back_keyboard() -> types.InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад", callback_data="menu_back")
@@ -50,72 +94,76 @@ def get_currency_keyboard() -> types.InlineKeyboardMarkup:
 # --- Кнопка "Назад" ---
 @router.callback_query(F.data == "menu_back")
 async def process_back(callback: types.CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
-    await callback.message.edit_text(
-        "<b>Вітаю у Currency Bot!</b> 👋\n\nОберіть потрібний розділ за допомогою кнопок нижче:",
-        reply_markup=get_main_menu_keyboard(),
-        parse_mode="HTML"
-    )
-    await callback.answer()
+    try:
+        await state.clear()
+        text = "<b>Вітаю у Currency Bot!</b> 👋\n\nОберіть потрібний розділ за допомогою кнопок нижче:"
+        await safe_edit_or_send(callback, text, reply_markup=get_main_menu_keyboard())
+    finally:
+        await callback.answer()
 
 
 # --- 1. Курс валют (menu_rate) ---
 @router.callback_query(F.data == "menu_rate")
 async def process_menu_rate(callback: types.CallbackQuery) -> None:
-    rates = await get_nbu_rates()
-    if not rates:
-        await callback.message.edit_text("❌ Не вдалося отримати курси валют.", reply_markup=get_back_keyboard())
+    try:
+        rates = await get_nbu_rates()
+        if not rates:
+            await safe_edit_or_send(callback, "❌ Не вдалося отримати курси валют.", reply_markup=get_back_keyboard())
+            return
+
+        text_lines = ["<b>📊 Поточний курс валют (НБУ):</b>\n"]
+        for r in rates:
+            code = r.get("cc")
+            if code in ["USD", "EUR"]:
+                val = r.get("rate", 0.0)
+                indicator = await get_rate_change_indicator(code, val)
+                text_lines.append(f"{code}: <b>{val:.2f}</b> UAH{indicator}")
+
+        text_lines.append("\nОновлено автоматично.")
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔄 Оновити", callback_data="menu_rate")
+        builder.button(text="⬅️ Назад", callback_data="menu_back")
+        builder.adjust(1)
+
+        await safe_edit_or_send(callback, "\n".join(text_lines), reply_markup=builder.as_markup())
+    finally:
         await callback.answer()
-        return
-
-    text_lines = ["<b>📊 Поточний курс валют (НБУ):</b>\n"]
-    for r in rates:
-        code = r.get("cc")
-        if code in ["USD", "EUR"]:
-            val = r.get("rate", 0.0)
-            indicator = await get_rate_change_indicator(code, val)
-            text_lines.append(f"{code}: <b>{val:.2f}</b> UAH{indicator}")
-
-    text_lines.append("\nОновлено автоматично.")
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🔄 Оновити", callback_data="menu_rate")
-    builder.button(text="⬅️ Назад", callback_data="menu_back")
-    builder.adjust(1)
-
-    await callback.message.edit_text("\n".join(text_lines), reply_markup=builder.as_markup(), parse_mode="HTML")
-    await callback.answer()
 
 
 # --- 2. Конвертер (menu_convert) ---
 @router.callback_query(F.data == "menu_convert")
 async def process_menu_convert(callback: types.CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(ConvertState.waiting_for_currency)
-    await callback.message.edit_text("🔄 <b>Конвертер</b>\n\nОберіть валюту:", reply_markup=get_currency_keyboard(), parse_mode="HTML")
-    await callback.answer()
+    try:
+        await state.set_state(ConvertState.waiting_for_currency)
+        await safe_edit_or_send(callback, "🔄 <b>Конвертер</b>\n\nОберіть валюту:", reply_markup=get_currency_keyboard())
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(ConvertState.waiting_for_currency, F.data.startswith("select_curr_"))
 async def process_convert_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
-    curr = callback.data.split("_")[-1]
-    await state.update_data(currency=curr)
-    await state.set_state(ConvertState.waiting_for_amount)
-    await callback.message.edit_text(
-        f"Введіть суму у <b>{curr}</b> для конвертації в UAH:",
-        reply_markup=get_back_keyboard(),
-        parse_mode="HTML"
-    )
-    await callback.answer()
+    try:
+        curr = callback.data.split("_")[-1]
+        await state.update_data(currency=curr)
+        await state.set_state(ConvertState.waiting_for_amount)
+        await safe_edit_or_send(
+            callback,
+            f"Введіть суму у <b>{curr}</b> для конвертації в UAH:",
+            reply_markup=get_back_keyboard()
+        )
+    finally:
+        await callback.answer()
 
 
 @router.message(ConvertState.waiting_for_amount)
 async def process_convert_amount(message: types.Message, state: FSMContext) -> None:
-    text = message.text.replace(",", ".") if message.text else ""
+    raw_text = message.text.replace(",", ".").strip() if message.text else ""
     try:
-        amount = float(text)
+        amount = float(raw_text)
         if amount <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Будь ласка, введіть коректне додатне число:", reply_markup=get_back_keyboard())
+        await message.answer("❌ Будь ласка, введіть коректне додатне число (наприклад 100 або 50.5):", reply_markup=get_back_keyboard())
         return
 
     data = await state.get_data()
@@ -135,52 +183,58 @@ async def process_convert_amount(message: types.Message, state: FSMContext) -> N
         f"<code>{amount:,.2f}</code> {curr} = <code>{result:,.2f}</code> UAH\n"
         f"<i>(Курс НБУ: <code>{rate:.2f}</code> UAH)</i>"
     )
-    await message.answer(res_text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
+    await message.answer(res_text, reply_markup=get_main_menu_keyboard())
 
 
 # --- 3. Підписки (menu_subscribe) ---
 @router.callback_query(F.data == "menu_subscribe")
 async def process_menu_subscribe(callback: types.CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(SubscribeState.waiting_for_currency)
-    await callback.message.edit_text("🔔 <b>Підписка на курс</b>\n\nОберіть валюту:", reply_markup=get_currency_keyboard(), parse_mode="HTML")
-    await callback.answer()
+    try:
+        await state.set_state(SubscribeState.waiting_for_currency)
+        await safe_edit_or_send(callback, "🔔 <b>Підписка на курс</b>\n\nОберіть валюту:", reply_markup=get_currency_keyboard())
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(SubscribeState.waiting_for_currency, F.data.startswith("select_curr_"))
 async def process_sub_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
-    curr = callback.data.split("_")[-1]
-    await state.update_data(currency=curr)
-    await state.set_state(SubscribeState.waiting_for_condition)
+    try:
+        curr = callback.data.split("_")[-1]
+        await state.update_data(currency=curr)
+        await state.set_state(SubscribeState.waiting_for_condition)
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Більше ніж (>)", callback_data="sub_cond_>")
-    builder.button(text="Менше ніж (<)", callback_data="sub_cond_<")
-    builder.button(text="⬅️ Назад", callback_data="menu_back")
-    builder.adjust(2, 1)
+        builder = InlineKeyboardBuilder()
+        builder.button(text="Більше ніж (>)", callback_data="sub_cond_>")
+        builder.button(text="Менше ніж (<)", callback_data="sub_cond_<")
+        builder.button(text="⬅️ Назад", callback_data="menu_back")
+        builder.adjust(2, 1)
 
-    await callback.message.edit_text(f"Оберіть умову для <b>{curr}</b>:", reply_markup=builder.as_markup(), parse_mode="HTML")
-    await callback.answer()
+        await safe_edit_or_send(callback, f"Оберіть умову для <b>{curr}</b>:", reply_markup=builder.as_markup())
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(SubscribeState.waiting_for_condition, F.data.startswith("sub_cond_"))
 async def process_sub_condition(callback: types.CallbackQuery, state: FSMContext) -> None:
-    cond = callback.data.split("_")[-1]
-    await state.update_data(condition=cond)
-    await state.set_state(SubscribeState.waiting_for_rate)
+    try:
+        cond = callback.data.split("_")[-1]
+        await state.update_data(condition=cond)
+        await state.set_state(SubscribeState.waiting_for_rate)
 
-    await callback.message.edit_text(
-        f"Введіть цільове значення курсу UAH (наприклад: <code>41.5</code>):",
-        reply_markup=get_back_keyboard(),
-        parse_mode="HTML"
-    )
-    await callback.answer()
+        await safe_edit_or_send(
+            callback,
+            "Введіть цільове значення курсу UAH (наприклад: <code>41.5</code>):",
+            reply_markup=get_back_keyboard()
+        )
+    finally:
+        await callback.answer()
 
 
 @router.message(SubscribeState.waiting_for_rate)
 async def process_sub_rate(message: types.Message, state: FSMContext) -> None:
-    text = message.text.replace(",", ".") if message.text else ""
+    raw_text = message.text.replace(",", ".").strip() if message.text else ""
     try:
-        target_rate = float(text)
+        target_rate = float(raw_text)
         if target_rate <= 0:
             raise ValueError
     except ValueError:
@@ -191,7 +245,7 @@ async def process_sub_rate(message: types.Message, state: FSMContext) -> None:
     curr = data.get("currency", "USD")
     cond = data.get("condition", ">")
 
-    await add_subscription(
+    success = await add_subscription(
         user_id=message.from_user.id,
         currency=curr,
         condition=cond,
@@ -199,66 +253,79 @@ async def process_sub_rate(message: types.Message, state: FSMContext) -> None:
     )
     await state.clear()
 
-    await message.answer(
-        f"✅ <b>Підписку успішно збережено!</b>\n\n"
-        f"Ми сповістимо вас, коли курс <b>{curr}</b> буде <b>{cond} <code>{target_rate:.2f}</code> UAH</b>.",
-        reply_markup=get_main_menu_keyboard(),
-        parse_mode="HTML"
-    )
+    if success:
+        await message.answer(
+            f"✅ <b>Підписку успішно збережено!</b>\n\n"
+            f"Ми сповістимо вас, коли курс <b>{curr}</b> буде <b>{cond} <code>{target_rate:.2f}</code> UAH</b>.",
+            reply_markup=get_main_menu_keyboard()
+        )
+    else:
+        await message.answer(
+            f"ℹ️ У вас вже існує точно така ж підписка на <b>{curr} {cond} <code>{target_rate:.2f}</code> UAH</b>.",
+            reply_markup=get_main_menu_keyboard()
+        )
 
 
 # --- 4. Історія (menu_history) ---
 @router.callback_query(F.data == "menu_history")
 async def process_menu_history(callback: types.CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(HistoryState.waiting_for_currency)
-    await callback.message.edit_text("📊 <b>Історія курсу</b>\n\nОберіть валюту:", reply_markup=get_currency_keyboard(), parse_mode="HTML")
-    await callback.answer()
+    try:
+        await state.set_state(HistoryState.waiting_for_currency)
+        await safe_edit_or_send(callback, "📊 <b>Історія курсу</b>\n\nОберіть валюту:", reply_markup=get_currency_keyboard())
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(HistoryState.waiting_for_currency, F.data.startswith("select_curr_"))
 async def process_history_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
-    curr = callback.data.split("_")[-1]
-    await state.update_data(currency=curr)
-    await state.set_state(HistoryState.waiting_for_days)
+    try:
+        curr = callback.data.split("_")[-1]
+        await state.update_data(currency=curr)
+        await state.set_state(HistoryState.waiting_for_days)
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="7 днів", callback_data="hist_days_7")
-    builder.button(text="14 днів", callback_data="hist_days_14")
-    builder.button(text="30 днів", callback_data="hist_days_30")
-    builder.button(text="⬅️ Назад", callback_data="menu_back")
-    builder.adjust(3, 1)
+        builder = InlineKeyboardBuilder()
+        builder.button(text="7 днів", callback_data="hist_days_7")
+        builder.button(text="14 днів", callback_data="hist_days_14")
+        builder.button(text="30 днів", callback_data="hist_days_30")
+        builder.button(text="⬅️ Назад", callback_data="menu_back")
+        builder.adjust(3, 1)
 
-    await callback.message.edit_text(f"Оберіть період для <b>{curr}</b>:", reply_markup=builder.as_markup(), parse_mode="HTML")
-    await callback.answer()
+        await safe_edit_or_send(callback, f"Оберіть період для <b>{curr}</b>:", reply_markup=builder.as_markup())
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(HistoryState.waiting_for_days, F.data.startswith("hist_days_"))
 async def process_history_days(callback: types.CallbackQuery, state: FSMContext) -> None:
-    days = int(callback.data.split("_")[-1])
-    data = await state.get_data()
-    curr = data.get("currency", "USD")
-    await state.clear()
+    try:
+        days = int(callback.data.split("_")[-1])
+        data = await state.get_data()
+        curr = data.get("currency", "USD")
+        await state.clear()
 
-    await callback.message.edit_text("📊 Генерую графік...")
+        history_data = await get_rate_history(currency=curr, days=days, source="nbu")
+        if not history_data or len(history_data) < 2:
+            await safe_edit_or_send(
+                callback,
+                f"ℹ️ Для побудови графіка недостатньо даних в БД за останні {days} днів.",
+                reply_markup=get_back_keyboard()
+            )
+            return
 
-    history_data = await get_rate_history(currency=curr, days=days, source="nbu")
-    if not history_data or len(history_data) < 2:
-        await callback.message.edit_text(
-            f"ℹ️ Для побудови графіка недостатньо даних в БД за останні {days} днів.",
-            reply_markup=get_back_keyboard()
+        history_data = list(reversed(history_data))
+        chart_buf = generate_chart(history_data, curr)
+        photo = BufferedInputFile(chart_buf.getvalue(), filename=f"{curr}_history.png")
+
+        if callback.message:
+            try:
+                await callback.message.delete()
+            except TelegramBadRequest:
+                pass
+
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=f"📈 Динаміка курсу <b>{curr}</b> за останні {len(history_data)} дн.",
+            reply_markup=get_main_menu_keyboard()
         )
+    finally:
         await callback.answer()
-        return
-
-    history_data = list(reversed(history_data))
-    chart_buf = generate_chart(history_data, curr)
-    photo = BufferedInputFile(chart_buf.getvalue(), filename=f"{curr}_history.png")
-
-    await callback.message.delete()
-    await callback.message.answer_photo(
-        photo=photo,
-        caption=f"📈 Динаміка курсу <b>{curr}</b> за останні {len(history_data)} дн.",
-        reply_markup=get_main_menu_keyboard(),
-        parse_mode="HTML"
-    )
-    await callback.answer()
