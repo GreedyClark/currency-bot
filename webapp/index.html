@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Currency Mini App</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -23,7 +26,7 @@
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: 'Poppins', 'Arial Black', sans-serif;
+      font-family: 'Poppins', sans-serif;
     }
 
     body {
@@ -46,7 +49,7 @@
     }
 
     h1 {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 900;
       text-transform: uppercase;
       margin-bottom: 16px;
@@ -65,7 +68,7 @@
 
     .card-title {
       font-weight: 800;
-      font-size: 16px;
+      font-size: 15px;
       margin-bottom: 10px;
       text-transform: uppercase;
     }
@@ -87,11 +90,11 @@
 
     .rate-box .currency {
       font-weight: 900;
-      font-size: 18px;
+      font-size: 16px;
     }
 
     .rate-box .val {
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 800;
       margin-top: 4px;
     }
@@ -107,40 +110,31 @@
       border: 2px solid var(--color-outline);
       border-radius: 10px;
       font-weight: 700;
-      font-size: 16px;
+      font-size: 15px;
       outline: none;
-    }
-
-    .btn-action {
-      background-color: var(--color-accent-orange);
-      color: #fff;
-      border: 3px solid var(--color-outline);
-      border-radius: 12px;
-      padding: 12px;
-      font-weight: 900;
-      font-size: 16px;
-      text-transform: uppercase;
-      cursor: pointer;
-      box-shadow: 3px 3px 0px var(--color-outline);
-      transition: transform 0.1s;
-    }
-
-    .btn-action:active {
-      transform: translate(2px, 2px);
-      box-shadow: 1px 1px 0px var(--color-outline);
     }
 
     .result-text {
       font-size: 18px;
       font-weight: 800;
-      margin-top: 8px;
+      margin-top: 4px;
       text-align: center;
+    }
+
+    .error-msg {
+      color: var(--color-accent-pink);
+      font-weight: 700;
+      font-size: 13px;
+      text-align: center;
+      display: none;
     }
   </style>
 </head>
 <body>
   <div class="app-container">
     <h1>💱 Currency Mini App</h1>
+
+    <div id="errorBanner" class="error-msg">⚠️ Не вдалося завантажити актуальні дані з сервера</div>
 
     <!-- Картка курсів -->
     <div class="card">
@@ -159,7 +153,7 @@
 
     <!-- Графік -->
     <div class="card">
-      <div class="card-title">Динаміка USD (30 днів)</div>
+      <div class="card-title" id="chartTitle">Динаміка USD (30 днів)</div>
       <canvas id="rateChart" height="180"></canvas>
     </div>
 
@@ -167,76 +161,117 @@
     <div class="card">
       <div class="card-title">Швидка конвертація</div>
       <div class="convert-form">
-        <input type="number" id="amountInput" placeholder="Сума" value="100">
+        <input type="number" id="amountInput" placeholder="Сума" value="100" min="0">
         <select id="currencySelect">
           <option value="USD">USD ➔ UAH</option>
           <option value="EUR">EUR ➔ UAH</option>
         </select>
-        <div class="result-text" id="calcResult">0.00 UAH</div>
+        <div class="result-text" id="calcResult">-- UAH</div>
       </div>
     </div>
   </div>
 
   <script>
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
 
-    let usdRate = 41.50;
-    let eurRate = 45.20;
+    let usdRate = null;
+    let eurRate = null;
+    let chartInstance = null;
 
-    async function loadData() {
+    async function loadRates() {
       try {
         const res = await fetch('/api/rates');
-        if(res.ok) {
-          const data = await res.json();
-          usdRate = data.USD || usdRate;
-          eurRate = data.EUR || eurRate;
-        }
-      } catch(e) {}
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        const data = await res.json();
 
-      document.getElementById('usd-rate').innerText = usdRate.toFixed(2);
-      document.getElementById('eur-rate').innerText = eurRate.toFixed(2);
-      calculate();
+        if (data.USD) usdRate = data.USD;
+        if (data.EUR) eurRate = data.EUR;
+
+        document.getElementById('usd-rate').innerText = usdRate ? usdRate.toFixed(2) + " UAH" : "N/A";
+        document.getElementById('eur-rate').innerText = eurRate ? eurRate.toFixed(2) + " UAH" : "N/A";
+        calculate();
+      } catch (e) {
+        console.error("Error loading rates:", e);
+        document.getElementById('errorBanner').style.display = 'block';
+      }
+    }
+
+    async function loadChartData(currency = 'USD') {
+      try {
+        const res = await fetch(`/api/history?currency=${currency}&days=30`);
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        const result = await res.json();
+
+        const labels = result.data.map(item => item.date.slice(5)); // MM-DD
+        const rates = result.data.map(item => item.rate);
+
+        renderChart(labels, rates, currency);
+      } catch (e) {
+        console.error("Error loading chart history:", e);
+      }
+    }
+
+    function renderChart(labels, rates, currency) {
+      const ctx = document.getElementById('rateChart').getContext('2d');
+      document.getElementById('chartTitle').innerText = `Динаміка ${currency} (${labels.length} дн.)`;
+
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels.length ? labels : ['Немає даних'],
+          datasets: [{
+            label: `Курс ${currency}`,
+            data: rates.length ? rates : [0],
+            borderColor: '#111111',
+            borderWidth: 3,
+            backgroundColor: '#FF8A5B',
+            pointBackgroundColor: '#C6FF3F',
+            pointRadius: 4,
+            fill: false,
+            tension: 0.2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { grid: { color: '#e0e0e0' } }
+          }
+        }
+      });
     }
 
     function calculate() {
       const amount = parseFloat(document.getElementById('amountInput').value) || 0;
       const curr = document.getElementById('currencySelect').value;
       const rate = curr === 'USD' ? usdRate : eurRate;
+
+      if (!rate) {
+        document.getElementById('calcResult').innerText = "Немає даних";
+        return;
+      }
       const res = amount * rate;
-      document.getElementById('calcResult').innerText = `${res.toFixed(2)} UAH`;
+      document.getElementById('calcResult').innerText = `${res.toLocaleString('uk-UA', {minimumFractionDigits: 2, maximumFractionDigits: 2})} UAH`;
     }
 
     document.getElementById('amountInput').addEventListener('input', calculate);
-    document.getElementById('currencySelect').addEventListener('change', calculate);
-
-    // Ініціалізація графіку
-    const ctx = document.getElementById('rateChart').getContext('2d');
-    new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: Array.from({length: 10}, (_, i) => `День ${i+1}`),
-        datasets: [{
-          label: 'Курс USD',
-          data: [41.1, 41.2, 41.15, 41.3, 41.25, 41.4, 41.35, 41.45, 41.5, 41.5],
-          borderColor: '#111111',
-          borderWidth: 3,
-          backgroundColor: '#FF8A5B',
-          fill: false,
-          tension: 0.3
-        }]
-      },
-      options: {
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { display: false } },
-          y: { grid: { color: '#eee' } }
-        }
-      }
+    document.getElementById('currencySelect').addEventListener('change', (e) => {
+      calculate();
+      loadChartData(e.target.value);
     });
 
-    loadData();
+    // Початкове завантаження
+    loadRates();
+    loadChartData('USD');
   </script>
 </body>
 </html>
