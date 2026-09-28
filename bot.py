@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from config import settings
 from database.db import init_db
-from handlers import start, rate, subscribe, history
+from handlers import start, rate, subscribe, history, menu_callbacks
 from services.scheduler import setup_scheduler
 
 # Налаштування логування
@@ -31,6 +31,7 @@ async def main() -> None:
     dp.include_router(rate.router)
     dp.include_router(subscribe.router)
     dp.include_router(history.router)
+    dp.include_router(menu_callbacks.router)
 
     # Налаштування та запуск розкладу задач
     scheduler = setup_scheduler(bot)
