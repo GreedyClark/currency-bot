@@ -1,7 +1,8 @@
+from datetime import datetime
 from aiogram import Router, types
 from aiogram.filters import Command
-from services.nbu_api import get_nbu_rates, get_nbu_rate_by_code
-from database.db import get_rate_history
+from services.nbu_api import get_nbu_rates
+from database.db import get_previous_rate
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 router = Router()
@@ -9,12 +10,23 @@ router = Router()
 SUPPORTED_CURRENCIES = ["USD", "EUR", "PLN", "GBP", "CHF"]
 
 
-async def get_rate_change_indicator(currency: str, current_rate: float) -> str:
-    """Визначає динаміку зміни курсу порівняно з попереднім днем у БД."""
-    history = await get_rate_history(currency=currency, days=2, source="nbu")
-    if len(history) < 2:
+async def get_rate_change_indicator(currency: str, current_rate: float, current_date: str) -> str:
+    """
+    Визначає динаміку зміни курсу порівняно з попереднім збереженим днем у БД.
+    `current_date` очікується у форматі 'YYYY-MM-DD' або 'DD.MM.YYYY'.
+    """
+    if "." in current_date:
+        try:
+            formatted_date = datetime.strptime(current_date, "%d.%m.%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            formatted_date = current_date
+    else:
+        formatted_date = current_date
+
+    prev_rate = await get_previous_rate(currency=currency, before_date=formatted_date, source="nbu")
+    if prev_rate is None:
         return ""
-    prev_rate = history[1]["rate_buy"]
+
     diff = current_rate - prev_rate
     if diff > 0.001:
         return f" 📈 (+{diff:.2f})"
@@ -36,7 +48,8 @@ async def cmd_rate(message: types.Message):
         code = r.get("cc")
         if code in SUPPORTED_CURRENCIES:
             val = r.get("rate", 0.0)
-            indicator = await get_rate_change_indicator(code, val)
+            ex_date = r.get("exchangedate", datetime.now().strftime("%d.%m.%Y"))
+            indicator = await get_rate_change_indicator(code, val, ex_date)
             text_lines.append(f"• <b>{code}</b>: <code>{val:.2f}</code> UAH{indicator}")
 
     builder = InlineKeyboardBuilder()
