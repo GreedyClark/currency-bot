@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def get_db_connection() -> aiosqlite.Connection:
     """Створює та повертає з'єднання з базою даних SQLite."""
     os.makedirs(os.path.dirname(settings.DB_PATH), exist_ok=True)
-    return await aiosqlite.connect(settings.DB_PATH)
+    return aiosqlite.connect(settings.DB_PATH)
 
 
 async def init_db() -> None:
