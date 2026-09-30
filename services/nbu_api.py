@@ -4,11 +4,31 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import aiohttp
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
 NBU_API_URL = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json"
 TARGET_CURRENCIES = {"USD", "EUR", "PLN", "GBP", "CHF"}
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
+    retry_error_callback=lambda retry_state: None,
+)
+async def _fetch_nbu_raw(url: str, session: aiohttp.ClientSession) -> Optional[List[Dict]]:
+    """
+    Виконує сам HTTP-запит до НБУ з автоматичними повторними спробами (до 3 разів).
+    Повертає None, якщо всі спроби невдалі — виключення назовні не пробивається.
+    """
+    async with session.get(url, timeout=10) as response:
+        if response.status == 200:
+            data = await response.json()
+            return data if isinstance(data, list) else []
+        logger.error(f"Помилка NBU API: статус {response.status}")
+        return []
 
 
 async def get_nbu_rates(date_str: Optional[str] = None, session: Optional[aiohttp.ClientSession] = None) -> List[Dict]:
@@ -27,12 +47,11 @@ async def get_nbu_rates(date_str: Optional[str] = None, session: Optional[aiohtt
         should_close_session = True
 
     try:
-        async with session.get(url, timeout=10) as response:
-            if response.status == 200:
-                data = await response.json()
-                return data if isinstance(data, list) else []
-            logger.error(f"Помилка NBU API (дата {date_str}): статус {response.status}")
+        result = await _fetch_nbu_raw(url, session)
+        if result is None:
+            logger.error(f"НБУ API недоступний після повторних спроб (дата {date_str}).")
             return []
+        return result
     except Exception as e:
         logger.error(f"Помилка при з'єднанні з NBU API (дата {date_str}): {e}")
         return []

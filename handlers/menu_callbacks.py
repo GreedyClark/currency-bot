@@ -8,10 +8,13 @@ from aiogram.types import BufferedInputFile
 from aiogram.exceptions import TelegramBadRequest
 
 from services.nbu_api import get_nbu_rates, get_nbu_rate_by_code
-from database.db import add_subscription, get_rate_history
+from services.converter import calculate_conversion
+from database.db import add_subscription, get_rate_history, get_user_subscriptions
 from handlers.history import generate_chart
 from handlers.start import get_main_menu_keyboard
 from handlers.rate import get_rate_change_indicator
+from handlers.help import get_help_text
+from handlers.subscribe import format_subscriptions_list, get_unsubscribe_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -233,7 +236,7 @@ async def process_convert_amount(message: types.Message, state: FSMContext) -> N
         await state.clear()
         return
 
-    result = (amount * rate_from) / rate_to
+    result = calculate_conversion(amount, rate_from, rate_to)
     await state.clear()
 
     res_text = (
@@ -289,7 +292,7 @@ async def cmd_convert_direct(message: types.Message):
         await message.answer("❌ Не вдалося отримати актуальний курс.")
         return
 
-    result = (amount * rate_from) / rate_to
+    result = calculate_conversion(amount, rate_from, rate_to)
 
     await message.answer(
         f"💱 <b>Результат конвертації:</b>\n\n"
@@ -441,6 +444,28 @@ async def process_history_days(callback: types.CallbackQuery, state: FSMContext)
             caption=f"📈 Динаміка курсу <b>{curr}</b> за останні {len(history_data)} дн.",
             reply_markup=get_main_menu_keyboard()
         )
+    finally:
+        await callback.answer()
+
+
+# --- 5. Довідка (menu_help) ---
+@router.callback_query(F.data == "menu_help")
+async def process_menu_help(callback: types.CallbackQuery) -> None:
+    try:
+        await safe_edit_or_send(callback, get_help_text(), reply_markup=get_back_keyboard())
+    finally:
+        await callback.answer()
+
+
+# --- 6. Мої активні підписки (menu_mysubs) ---
+@router.callback_query(F.data == "menu_mysubs")
+async def process_menu_mysubs(callback: types.CallbackQuery) -> None:
+    try:
+        subs = await get_user_subscriptions(callback.from_user.id)
+        if not subs:
+            await safe_edit_or_send(callback, "ℹ️ У вас немає активних підписок.", reply_markup=get_back_keyboard())
+            return
+        await safe_edit_or_send(callback, format_subscriptions_list(subs), reply_markup=get_unsubscribe_keyboard(subs))
     finally:
         await callback.answer()
 

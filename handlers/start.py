@@ -10,9 +10,11 @@ def get_main_menu_keyboard() -> types.InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="💱 Курс валют", callback_data="menu_rate")
     builder.button(text="🔄 Конвертер", callback_data="menu_convert")
-    builder.button(text="🔔 Мої підписки", callback_data="menu_subscribe")
+    builder.button(text="🔔 Підписатись", callback_data="menu_subscribe")
+    builder.button(text="📋 Мої активні", callback_data="menu_mysubs")
     builder.button(text="📊 Історія курсу", callback_data="menu_history")
-    builder.adjust(2, 2)
+    builder.button(text="❓ Довідка", callback_data="menu_help")
+    builder.adjust(2, 2, 2)
     return builder.as_markup()
 
 
