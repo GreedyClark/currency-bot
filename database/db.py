@@ -15,19 +15,17 @@ logger = logging.getLogger(__name__)
 
 
 async def get_db_connection() -> aiosqlite.Connection:
-    """Створює та повертає з'єднання з базою даних SQLite."""
     os.makedirs(os.path.dirname(settings.DB_PATH), exist_ok=True)
     return aiosqlite.connect(settings.DB_PATH)
 
 
 async def init_db() -> None:
-    """Ініціалізація баз даних: створення таблиць, очищення дублів та створення унікальних індексів."""
     async with await get_db_connection() as db:
         await db.execute(CREATE_RATES_HISTORY_TABLE)
         await db.execute(CREATE_SUBSCRIPTIONS_TABLE)
         await db.execute(CREATE_USERS_TABLE)
 
-        # Очищення дублікатів в історії курсів (залишаємо тільки запис з максимальним ID)
+        # з кожної групи дублів лишаємо найновіший запис
         delete_duplicates_query = """
         DELETE FROM rates_history
         WHERE id NOT IN (
@@ -38,7 +36,6 @@ async def init_db() -> None:
         """
         await db.execute(delete_duplicates_query)
 
-        # Створення унікального індексу для запобігання дублікатам у майбутньому
         create_index_query = """
         CREATE UNIQUE INDEX IF NOT EXISTS ux_rates_history
         ON rates_history(date, currency, source);
@@ -50,10 +47,6 @@ async def init_db() -> None:
 
 
 async def save_rate_history(currency: str, source: str, rate_buy: float, rate_sell: float, date: str) -> None:
-    """
-    Зберігає запис про курс у базі даних (upsert).
-    Якщо запис з такими (date, currency, source) вже існує — оновлює курси.
-    """
     async with await get_db_connection() as db:
         query = """
         INSERT INTO rates_history (currency, source, rate_buy, rate_sell, date)
@@ -67,7 +60,6 @@ async def save_rate_history(currency: str, source: str, rate_buy: float, rate_se
 
 
 async def get_rate_history(currency: str, days: int = 30, source: str = "nbu") -> List[Dict]:
-    """Отримує історію курсів валюти за останні N днів."""
     async with await get_db_connection() as db:
         db.row_factory = aiosqlite.Row
         query = """
@@ -83,9 +75,7 @@ async def get_rate_history(currency: str, days: int = 30, source: str = "nbu") -
 
 
 async def get_previous_rate(currency: str, before_date: str, source: str = "nbu") -> Optional[float]:
-    """
-    Отримує останній збережений курс із датою, СТРОГО раніше за before_date (формат YYYY-MM-DD).
-    """
+    """before_date у форматі YYYY-MM-DD, шукає запис строго раніше."""
     async with await get_db_connection() as db:
         query = """
         SELECT rate_buy
@@ -102,10 +92,6 @@ async def get_previous_rate(currency: str, before_date: str, source: str = "nbu"
 
 
 async def backfill_nbu_history_if_empty() -> None:
-    """
-    Перевіряє, чи є дані в таблиці rates_history.
-    Якщо таблиця порожня — заповнює її даними з НБУ за останні 30 днів.
-    """
     async with await get_db_connection() as db:
         async with db.execute("SELECT COUNT(*) FROM rates_history") as cursor:
             row = await cursor.fetchone()
@@ -142,7 +128,6 @@ async def backfill_nbu_history_if_empty() -> None:
 
 
 async def add_subscription(user_id: int, currency: str, condition: str, target_rate: float) -> bool:
-    """Додає нову підписку користувача, якщо аналогічна не існує."""
     async with await get_db_connection() as db:
         check_query = """
         SELECT id FROM subscriptions
@@ -162,7 +147,6 @@ async def add_subscription(user_id: int, currency: str, condition: str, target_r
 
 
 async def get_active_subscriptions() -> List[Dict]:
-    """Отримує всі активні підписки."""
     async with await get_db_connection() as db:
         db.row_factory = aiosqlite.Row
         query = "SELECT * FROM subscriptions WHERE is_active = 1"
@@ -172,7 +156,6 @@ async def get_active_subscriptions() -> List[Dict]:
 
 
 async def get_user_subscriptions(user_id: int) -> List[Dict]:
-    """Отримує активні підписки конкретного користувача."""
     async with await get_db_connection() as db:
         db.row_factory = aiosqlite.Row
         query = "SELECT * FROM subscriptions WHERE user_id = ? AND is_active = 1"
@@ -182,7 +165,6 @@ async def get_user_subscriptions(user_id: int) -> List[Dict]:
 
 
 async def delete_subscription(sub_id: int, user_id: int) -> bool:
-    """Видаляє (деактивує) підписку користувача."""
     async with await get_db_connection() as db:
         query = "UPDATE subscriptions SET is_active = 0 WHERE id = ? AND user_id = ?"
         cursor = await db.execute(query, (sub_id, user_id))
@@ -191,7 +173,6 @@ async def delete_subscription(sub_id: int, user_id: int) -> bool:
 
 
 async def save_user(user_id: int, username: Optional[str], first_name: Optional[str], last_name: Optional[str]) -> None:
-    """Зберігає або оновлює інформацію про користувача."""
     async with await get_db_connection() as db:
         query = """
         INSERT INTO users (user_id, username, first_name, last_name)

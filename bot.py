@@ -36,27 +36,22 @@ logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
-    """Точка входу для запуску Telegram бота."""
     logger.info("Запуск Currency Bot...")
 
     await init_db()
     logger.info("Базу даних ініціалізовано.")
 
-    # Автоматично заповнюємо історію курсів за 30 днів, якщо БД порожня
     await backfill_nbu_history_if_empty()
 
-    # Встановлюємо дефолтний HTML parse_mode для всього бота
     bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher()
 
-    # Throttling — захист від спаму командами (не частіше 1 разу на 1.5с)
     dp.message.middleware(ThrottlingMiddleware(rate_limit=1.5))
     dp.callback_query.middleware(ThrottlingMiddleware(rate_limit=1.5))
 
-    # Реєстрація роутерів
     dp.include_router(start.router)
     dp.include_router(rate.router)
     dp.include_router(subscribe.router)
@@ -64,7 +59,6 @@ async def main() -> None:
     dp.include_router(help_handler.router)
     dp.include_router(menu_callbacks.router)
 
-    # Планувальник задач (підписки та щоденні курси)
     scheduler = setup_scheduler(bot)
     logger.info("Планувальник задач APScheduler запущено.")
 

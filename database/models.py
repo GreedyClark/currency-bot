@@ -1,7 +1,3 @@
-"""
-SQL-схема таблиць бази даних SQLite.
-"""
-
 CREATE_RATES_HISTORY_TABLE = """
 CREATE TABLE IF NOT EXISTS rates_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

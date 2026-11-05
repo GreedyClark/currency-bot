@@ -6,7 +6,6 @@ router = Router()
 
 
 def get_main_menu_keyboard() -> types.InlineKeyboardMarkup:
-    """Генерує клавіатуру головного меню."""
     builder = InlineKeyboardBuilder()
     builder.button(text="💱 Курс валют", callback_data="menu_rate")
     builder.button(text="🔄 Конвертер", callback_data="menu_convert")
@@ -21,7 +20,6 @@ def get_main_menu_keyboard() -> types.InlineKeyboardMarkup:
 @router.message(CommandStart())
 @router.message(Command("menu"))
 async def cmd_start(message: types.Message) -> None:
-    """Обробник команд /start та /menu."""
     welcome_text = (
         "<b>Вітаю у Currency Bot!</b> 👋\n\n"
         "Оберіть потрібний розділ за допомогою кнопок нижче:"

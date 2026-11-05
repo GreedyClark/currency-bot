@@ -12,7 +12,6 @@ ALLOWED_SUB_CURRENCIES = {"USD", "EUR", "PLN", "GBP", "CHF"}
 
 
 def format_subscriptions_list(subs: list) -> str:
-    """Формує текст зі списком підписок користувача."""
     text_lines = ["<b>📋 Ваші активні підписки:</b>\n"]
     for s in subs:
         text_lines.append(
@@ -22,7 +21,6 @@ def format_subscriptions_list(subs: list) -> str:
 
 
 def get_unsubscribe_keyboard(subs: list) -> types.InlineKeyboardMarkup:
-    """Клавіатура з кнопкою видалення для кожної підписки."""
     builder = InlineKeyboardBuilder()
     for s in subs:
         builder.button(
@@ -35,10 +33,6 @@ def get_unsubscribe_keyboard(subs: list) -> types.InlineKeyboardMarkup:
 
 @router.message(Command("subscribe"))
 async def cmd_subscribe(message: types.Message):
-    """
-    Формат: /subscribe <валюта> <умова> <курс>
-    Приклад: /subscribe usd > 41.5
-    """
     args = message.text.split()[1:]
     if len(args) < 3:
         await message.answer(
@@ -93,7 +87,6 @@ async def cmd_subscribe(message: types.Message):
 
 @router.message(Command("mysubs"))
 async def cmd_mysubs(message: types.Message):
-    """Показує список активних підписок користувача (без можливості видалення)."""
     subs = await get_user_subscriptions(message.from_user.id)
     if not subs:
         await message.answer("ℹ️ У вас немає активних підписок.")
@@ -104,7 +97,6 @@ async def cmd_mysubs(message: types.Message):
 
 @router.message(Command("unsubscribe"))
 async def cmd_unsubscribe(message: types.Message):
-    """Показує список підписок з кнопками видалення, або видаляє за ID (сумісність зі старим форматом)."""
     args = message.text.split()[1:]
     if args:
         try:
@@ -131,7 +123,6 @@ async def cmd_unsubscribe(message: types.Message):
 
 @router.callback_query(F.data.startswith("unsub_"))
 async def process_unsubscribe_callback(callback: types.CallbackQuery) -> None:
-    """Видаляє підписку за натисканням inline-кнопки та оновлює список."""
     try:
         sub_id = int(callback.data.split("_")[-1])
         await delete_subscription(sub_id, callback.from_user.id)

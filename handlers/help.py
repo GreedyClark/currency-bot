@@ -5,7 +5,6 @@ router = Router()
 
 
 def get_help_text() -> str:
-    """Формує текст довідки зі списком усіх команд бота."""
     return (
         "<b>📖 Довідка по командах</b>\n\n"
         "<b>/start</b> або <b>/menu</b>\n"
@@ -33,5 +32,4 @@ def get_help_text() -> str:
 
 @router.message(Command("help"))
 async def cmd_help(message: types.Message) -> None:
-    """Обробник команди /help."""
     await message.answer(get_help_text())

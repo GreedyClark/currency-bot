@@ -23,7 +23,6 @@ SUPPORTED_CURRENCIES = {"USD", "EUR", "PLN", "GBP", "CHF"}
 SUPPORTED_CURRENCIES_ALL = {"USD", "EUR", "PLN", "GBP", "CHF", "UAH"}
 
 
-# --- FSM Стани ---
 class ConvertState(StatesGroup):
     waiting_for_from_currency = State()
     waiting_for_to_currency = State()
@@ -41,16 +40,11 @@ class HistoryState(StatesGroup):
     waiting_for_days = State()
 
 
-# --- Допоміжні функції та клавіатури ---
 async def safe_edit_or_send(
     callback: types.CallbackQuery,
     text: str,
     reply_markup: types.InlineKeyboardMarkup = None
 ) -> None:
-    """
-    Безпечно оновлює текст повідомлення або надсилає нове,
-    якщо попереднє повідомлення містило фотографію (графік).
-    """
     msg = callback.message
     if not msg:
         return
@@ -82,14 +76,12 @@ async def safe_edit_or_send(
 
 
 def get_back_keyboard() -> types.InlineKeyboardMarkup:
-    """Клавіатура з кнопкою Назад."""
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад", callback_data="menu_back")
     return builder.as_markup()
 
 
 def get_currency_keyboard() -> types.InlineKeyboardMarkup:
-    """Стандартна клавіатура вибору іноземної валюти (для підписок та історії)."""
     builder = InlineKeyboardBuilder()
     builder.button(text="💵 USD", callback_data="select_curr_USD")
     builder.button(text="💶 EUR", callback_data="select_curr_EUR")
@@ -102,7 +94,6 @@ def get_currency_keyboard() -> types.InlineKeyboardMarkup:
 
 
 def get_convert_currency_keyboard(action_prefix: str, exclude_code: str = None) -> types.InlineKeyboardMarkup:
-    """Клавіатура вибору валюти для конвертера (включно з UAH)."""
     builder = InlineKeyboardBuilder()
     currencies = [
         ("🇺🇦 UAH", "UAH"),
@@ -121,7 +112,6 @@ def get_convert_currency_keyboard(action_prefix: str, exclude_code: str = None) 
     return builder.as_markup()
 
 
-# --- Кнопка "Назад" ---
 @router.callback_query(F.data == "menu_back")
 async def process_back(callback: types.CallbackQuery, state: FSMContext) -> None:
     try:
@@ -132,7 +122,6 @@ async def process_back(callback: types.CallbackQuery, state: FSMContext) -> None
         await callback.answer()
 
 
-# --- 1. Курс валют (menu_rate) ---
 @router.callback_query(F.data == "menu_rate")
 async def process_menu_rate(callback: types.CallbackQuery) -> None:
     try:
@@ -161,10 +150,8 @@ async def process_menu_rate(callback: types.CallbackQuery) -> None:
         await callback.answer()
 
 
-# --- 2. Двосторонній Конвертер (menu_convert) ---
 @router.callback_query(F.data == "menu_convert")
 async def process_menu_convert(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Крок 1: Вибір валюти, З ЯКОЇ конвертуємо."""
     try:
         await state.set_state(ConvertState.waiting_for_from_currency)
         await safe_edit_or_send(
@@ -178,7 +165,6 @@ async def process_menu_convert(callback: types.CallbackQuery, state: FSMContext)
 
 @router.callback_query(ConvertState.waiting_for_from_currency, F.data.startswith("convert_from_"))
 async def process_convert_from_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Крок 2: Збереження From-валюти та вибір валюти, У ЯКУ конвертуємо."""
     try:
         from_curr = callback.data.split("_")[-1]
         await state.update_data(from_currency=from_curr)
@@ -195,7 +181,6 @@ async def process_convert_from_currency(callback: types.CallbackQuery, state: FS
 
 @router.callback_query(ConvertState.waiting_for_to_currency, F.data.startswith("convert_to_"))
 async def process_convert_to_currency(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Крок 3: Збереження To-валюти та запит суми."""
     try:
         to_curr = callback.data.split("_")[-1]
         await state.update_data(to_currency=to_curr)
@@ -214,7 +199,6 @@ async def process_convert_to_currency(callback: types.CallbackQuery, state: FSMC
 
 @router.message(ConvertState.waiting_for_amount)
 async def process_convert_amount(message: types.Message, state: FSMContext) -> None:
-    """Крок 4: Введення суми та розрахунок крос-курсом."""
     raw_text = message.text.replace(",", ".").strip() if message.text else ""
     try:
         amount = float(raw_text)
@@ -248,14 +232,8 @@ async def process_convert_amount(message: types.Message, state: FSMContext) -> N
     await message.answer(res_text, reply_markup=get_main_menu_keyboard())
 
 
-# --- Пряма команда /convert ---
 @router.message(Command("convert"))
 async def cmd_convert_direct(message: types.Message):
-    """
-    Формати прямої команди:
-    • /convert <сума> <з_валюти> <у_валюту> (наприклад: /convert 100 usd eur)
-    • /convert <сума> <валюта> (автоматично переводить в UAH)
-    """
     args = message.text.split()[1:]
     if not args:
         await message.answer(
@@ -303,7 +281,6 @@ async def cmd_convert_direct(message: types.Message):
     )
 
 
-# --- 3. Підписки (menu_subscribe) ---
 @router.callback_query(F.data == "menu_subscribe")
 async def process_menu_subscribe(callback: types.CallbackQuery, state: FSMContext) -> None:
     try:
@@ -383,7 +360,6 @@ async def process_sub_rate(message: types.Message, state: FSMContext) -> None:
         )
 
 
-# --- 4. Історія (menu_history) ---
 @router.callback_query(F.data == "menu_history")
 async def process_menu_history(callback: types.CallbackQuery, state: FSMContext) -> None:
     try:
@@ -448,7 +424,6 @@ async def process_history_days(callback: types.CallbackQuery, state: FSMContext)
         await callback.answer()
 
 
-# --- 5. Довідка (menu_help) ---
 @router.callback_query(F.data == "menu_help")
 async def process_menu_help(callback: types.CallbackQuery) -> None:
     try:
@@ -457,7 +432,6 @@ async def process_menu_help(callback: types.CallbackQuery) -> None:
         await callback.answer()
 
 
-# --- 6. Мої активні підписки (menu_mysubs) ---
 @router.callback_query(F.data == "menu_mysubs")
 async def process_menu_mysubs(callback: types.CallbackQuery) -> None:
     try:
@@ -470,10 +444,8 @@ async def process_menu_mysubs(callback: types.CallbackQuery) -> None:
         await callback.answer()
 
 
-# --- Фолбек для застарілих/невідомих кнопок ---
 @router.callback_query()
 async def process_unknown_callback(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Фолбек для будь-яких неопрацьованих або застарілих callback-запитів."""
     await state.clear()
     await safe_edit_or_send(
         callback,

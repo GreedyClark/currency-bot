@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 import matplotlib
 
-matplotlib.use('Agg')  # Використовуємо фоновий бекенд без GUI
+matplotlib.use('Agg')  # без GUI, щоб графіки малювались на сервері
 import matplotlib.pyplot as plt
 
 from aiogram import Router, types
@@ -19,9 +19,6 @@ SUPPORTED_CURRENCIES = {"USD", "EUR", "PLN", "GBP", "CHF"}
 
 
 async def generate_chart(history_data: list, currency_code: str) -> io.BytesIO:
-    """
-    Генерує стильний лінійний графік історії курсу валюти за допомогою Matplotlib.
-    """
     dates = [
         datetime.strptime(item["date"], "%Y-%m-%d").strftime("%d.%m")
         for item in history_data
@@ -51,12 +48,6 @@ async def generate_chart(history_data: list, currency_code: str) -> io.BytesIO:
 
 @router.message(Command("history"))
 async def cmd_history_direct(message: types.Message):
-    """
-    Пряма команда: /history <валюта> <днів>
-    Приклади:
-    • /history pln 14
-    • /history gbp 30
-    """
     args = message.text.split()[1:]
     curr = "USD"
     days = 30

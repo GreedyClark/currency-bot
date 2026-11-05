@@ -6,11 +6,6 @@ from cachetools import TTLCache
 
 
 class ThrottlingMiddleware(BaseMiddleware):
-    """
-    Обмежує частоту звернень одного користувача.
-    Якщо користувач надсилає повідомлення/натискає кнопку частіше,
-    ніж раз на `rate_limit` секунд — запит тихо ігнорується.
-    """
 
     def __init__(self, rate_limit: float = 1.5) -> None:
         self.rate_limit = rate_limit

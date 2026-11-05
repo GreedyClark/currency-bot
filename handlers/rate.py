@@ -11,10 +11,6 @@ SUPPORTED_CURRENCIES = ["USD", "EUR", "PLN", "GBP", "CHF"]
 
 
 async def get_rate_change_indicator(currency: str, current_rate: float, current_date: str) -> str:
-    """
-    Визначає динаміку зміни курсу порівняно з попереднім збереженим днем у БД.
-    `current_date` очікується у форматі 'YYYY-MM-DD' або 'DD.MM.YYYY'.
-    """
     if "." in current_date:
         try:
             formatted_date = datetime.strptime(current_date, "%d.%m.%Y").strftime("%Y-%m-%d")
@@ -37,7 +33,6 @@ async def get_rate_change_indicator(currency: str, current_rate: float, current_
 
 @router.message(Command("rate"))
 async def cmd_rate(message: types.Message):
-    """Обробка команди /rate."""
     rates = await get_nbu_rates()
     if not rates:
         await message.answer("❌ Не вдалося отримати курси валют від НБУ.")

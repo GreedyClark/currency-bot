@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 async def save_daily_rates_task() -> None:
-    """Щоденна задача: зберігає актуальний курс НБУ в БД о 18:00."""
     logger.info("Запуск щоденного збереження курсів НБУ...")
     rates = await get_nbu_rates()
     if not rates:
@@ -36,7 +35,6 @@ async def save_daily_rates_task() -> None:
 
 
 async def check_subscriptions_task(bot) -> None:
-    """Щогодинна задача: перевіряє активні підписки та надсилає сповіщення."""
     logger.info("Перевірка активних підписок...")
     subs = await get_active_subscriptions()
     if not subs:
@@ -80,10 +78,8 @@ async def check_subscriptions_task(bot) -> None:
 
 
 def setup_scheduler(bot) -> AsyncIOScheduler:
-    """Налаштування та запуск планувальника задач APScheduler."""
     scheduler = AsyncIOScheduler()
 
-    # Щоденне збереження курсів о 18:00
     scheduler.add_job(
         save_daily_rates_task,
         trigger="cron",
@@ -91,7 +87,6 @@ def setup_scheduler(bot) -> AsyncIOScheduler:
         minute=0
     )
 
-    # Перевірка підписок щогодини
     scheduler.add_job(
         check_subscriptions_task,
         trigger="cron",
